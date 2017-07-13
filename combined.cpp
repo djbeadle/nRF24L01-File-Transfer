@@ -24,6 +24,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+// For signal handler:
+#include <csignal> 
 
 using namespace std;
 
@@ -45,7 +47,14 @@ RF24 radio(RPI_V2_GPIO_P1_22, BCM2835_SPI_CS0, BCM2835_SPI_SPEED_4MHZ);
 const uint64_t addresses[2] = { 0xABCDABCD71LL, 0x544d52687CLL };
 
 uint8_t data[32];
+static volatile int interrupt_flag = 0;
 unsigned long startTime, stopTime, counter, rxTimer=0;
+
+void interrupt_handler(int nothing)
+{
+	cout << "Ctrl-c pressed! Ending transmission and truncuating file.\n";
+	interrupt_flag = 1;
+}
 
 void print_packet(uint8_t *pkt)
 {
@@ -67,6 +76,7 @@ size_t getFilesize (const char* filename){
 
 int main(int argc, char** argv)
 {
+	signal(SIGINT, interrupt_handler);
 	fstream *file;
 	char *filename = argv[1];
 
@@ -173,9 +183,9 @@ int main(int argc, char** argv)
 
                 int start = 0;
                 int highest_pkt_num = 0;
-                while(start != 2)
+                while(start != 2 && interrupt_flag == 0)
                 {
-                        while(start != 2 && radio.available())
+                        while(start != 2 && radio.available() && interrupt_flag == 0)
                         {
                                 radio.read(&data,32);
                                 // print_packet(data, output_file);
@@ -270,7 +280,7 @@ int main(int argc, char** argv)
 		// It starts at 1, packets starting with 0 are reserved for special control packets
 		uint8_t special_ctr = 1;
 		// Read the entire file
-		while (eof == 0) {
+		while (eof == 0 && interrupt_flag == 0) {
 			// Ask the receiver to confirm receipt of the last 255 packets
 			// No comparison of checksums or anything, the receiver just checks to see if it has received every packet, and if it hasn't it asks for for them to be resubmitted. 
 			// Why 255? Because max(uint8_t) == 255
@@ -312,7 +322,7 @@ int main(int argc, char** argv)
 			// printf("Initiating Basic Data Transfer\n\r");
 
 			long int cycles = 3;
-			while(true){
+			while(true && interrupt_flag == 0){
 				if(radio.write(&code,32) == false) {
 				fprintf(stderr, "resending pkt: %d \"%s\"\n", code[0], code+1);
 				}
@@ -338,7 +348,7 @@ int main(int argc, char** argv)
 		//	usleep(6000);
 		} // read file loop
 
-		// Send the very last packet with filesize: 
+		// Send the very last packet
 		uint8_t last[32];
 		for(int i = 0; i < 32; i++){
 			last[i] = '\0';
