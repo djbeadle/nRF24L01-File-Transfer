@@ -47,6 +47,16 @@ const uint64_t addresses[2] = { 0xABCDABCD71LL, 0x544d52687CLL };
 uint8_t data[32];
 unsigned long startTime, stopTime, counter, rxTimer=0;
 
+void print_packet(uint8_t *pkt)
+{
+        printf("%d \"%s\"\n", (uint8_t*)pkt[0], (char*)pkt+1);
+}
+
+void print_packet(uint8_t *pkt, FILE *file)
+{
+        fprintf(file, "\n!%d \"%s\"\n", (uint8_t*)pkt[0], (char*)pkt+1);
+}
+
 size_t getFilesize (const char* filename){
 	struct stat st;
 	if(stat(filename, &st) != 0){
@@ -59,6 +69,8 @@ int main(int argc, char** argv)
 {
 	fstream *file;
 	char *filename = argv[1];
+
+	bool packets[256];
 	int hide = 0;
 	if(argc == 3)
 	{
@@ -135,15 +147,105 @@ int main(int argc, char** argv)
 
 	// file_rx loop
 	if(role == role_pong_back) {
-		while(1)
-		{
-			while(radio.available()) {
-				radio.read(&data,32);
-				cout << (char*)data;
-				counter++;
-			}
+
+                int filename_length = 32;
+                char *save_name = (char*)malloc(filename_length);
+                FILE *output_file;
+
+                cout << "Please enter a file name up to " << filename_length << " characters in length\n";
+                cout << "(This will overwrite any file with the same name)\n";
+                cout << "> ";
+
+                cin.getline(save_name, filename_length);
+                output_file = fopen(save_name, "w");
+
+                if(output_file == NULL)
+                {
+                        cout << "Something weird happened trying to write to the file.\n";
+                        perror("The following error occurred: ");
+                        return 6;
+                }
+
+                // set the entire packet array equal to 0
+                for(int i = 0; i < 256; i++){
+                        packets[i] = false;
+                }
+
+                int start = 0;
+                int highest_pkt_num = 0;
+                while(start != 2)
+                {
+                        while(start != 2 && radio.available())
+                        {
+                                radio.read(&data,32);
+                                // print_packet(data, output_file);
+                                // Read normal data packets:
+                                if((char*)data[0] != '\0')
+                                {
+
+                                        // keep track of all the packets we've received in this set of 256
+                                        uint8_t pkt_num = data[0];
+                                        packets[pkt_num] = true;
+                                        highest_pkt_num = pkt_num > highest_pkt_num ? pkt_num : highest_pkt_num;
+                                        if(hide != 1){
+                                                // printf("(!%u!)", pkt_num);
+                                                cout << (char*)data+1;
+                                        }
+                                        // fprintf(output_file, "(!%u!)", pkt_num);
+                                        fputs((char*)data+1, output_file);
+
+                                }
+                                // Starting packet:
+                                else if((char*)data[0] == '\0' && (char)data[1] == '1')
+                                {
+                                        cout << "File Transfer beginning!\n";
+                                        fputs((char*)data, output_file);
+                                        printf("Filesize: %s\n", (char*)data+2);
+                                        counter++;
+                                        start = 1;
+                                }
+                                // Ending packet:
+                                else if ((char*)data[0] == '\0' && (char)data[1] == '9')
+                                {
+                                        cout << "Recv'ed Ending Packet!\n";
+                                        start = 2;
+                                        // print out the number of packets missing:
+                                        int num_missing = 0;
+                                        for(int i = 1; i <= highest_pkt_num; i++)
+                                        {
+                                                num_missing += (packets[i] == 1 ? 0 : 1);
+                                                // printf("%d: %s\n", i, packets[i] ? "1" : "0");
+                                        }
+                                        printf("Num missing: %d/%d\n", num_missing, highest_pkt_num);
+                                }
+                                // Respond to special packet:
+                                else if ((char*)data[0] == '\0' && (char)data[1] == '3')
+                                {
+                                        uint8_t special_response[32];
+                                        uint8_t buf[256];
+                                        uint8_t buf_ptr = 0;
+                                        cout << "Received a special packet!\n";
+                                        // print_packet(data);
+                                        // print out the number of packets missing:
+                                        int num_missing = 0;
+                                        for(uint8_t i = 1; i < 255; i++)
+                                        {
+                                                num_missing += (packets[i] == 1 ? 0 : 1);
+                                                buf[buf_ptr++] = i;
+                                                // printf("%d: %s\n", i, packets[i] ? "1" : "0");
+                                        }
+                                        printf("Num missing: %d/255\n", num_missing);
+                                // string temp= "";
+                                // cout << "Press Enter to Continue...\n";
+                                // getline(cin, temp);
+                                }
+                                else
+                                {
+                                        //cout << "Something's screwed up with this packet and I don't know what.\n";
+                                }
+                        }
 		}
-	} // file_tx loop
+	} // file_rx loop
 	else if (role == role_ping_out)
 	{
 		// Send the very first packet with filesize: 
