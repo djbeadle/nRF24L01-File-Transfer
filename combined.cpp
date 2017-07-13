@@ -205,6 +205,27 @@ int main(int argc, char** argv)
                                         fputs((char*)data+1, output_file);
 
                                 }
+                                // Respond to special packet:
+                                else if ((char*)data[0] == '\0' && (char)data[1] == '3')
+                                {
+                                        uint8_t special_response[32];
+                                        uint8_t buf[256];
+                                        uint8_t buf_ptr = 0;
+                                        cout << "Received a special packet!\n";
+                                        // print_packet(data);
+                                        // print out the number of packets missing:
+                                        int num_missing = 0;
+                                        for(uint8_t i = 1; i < 255; i++)
+                                        {
+                                                num_missing += (packets[i] == 1 ? 0 : 1);
+                                                buf[buf_ptr++] = i;
+                                                // printf("%d: %s\n", i, packets[i] ? "1" : "0");
+                                        }
+                                        printf("Num missing: %d/255\n", num_missing);
+                                // string temp= "";
+                                // cout << "Press Enter to Continue...\n";
+                                // getline(cin, temp);
+                                }
                                 // Starting packet:
                                 else if((char*)data[0] == '\0' && (char)data[1] == '1')
                                 {
@@ -228,26 +249,19 @@ int main(int argc, char** argv)
                                         }
                                         printf("Num missing: %d/%d\n", num_missing, highest_pkt_num);
                                 }
-                                // Respond to special packet:
-                                else if ((char*)data[0] == '\0' && (char)data[1] == '3')
+                                // Premature Termination:
+                                else if ((char*)data[0] == '\0' && (char)data[1] == '8')
                                 {
-                                        uint8_t special_response[32];
-                                        uint8_t buf[256];
-                                        uint8_t buf_ptr = 0;
-                                        cout << "Received a special packet!\n";
-                                        // print_packet(data);
+                                        cout << "\n Tranmission ended prematurely by the sender\n";
+                                        start = 2;
                                         // print out the number of packets missing:
                                         int num_missing = 0;
-                                        for(uint8_t i = 1; i < 255; i++)
+                                        for(int i = 1; i <= highest_pkt_num; i++)
                                         {
                                                 num_missing += (packets[i] == 1 ? 0 : 1);
-                                                buf[buf_ptr++] = i;
                                                 // printf("%d: %s\n", i, packets[i] ? "1" : "0");
                                         }
-                                        printf("Num missing: %d/255\n", num_missing);
-                                // string temp= "";
-                                // cout << "Press Enter to Continue...\n";
-                                // getline(cin, temp);
+                                        printf("Num missing: %d/%d\n", num_missing, highest_pkt_num);
                                 }
                                 else
                                 {
@@ -350,12 +364,29 @@ int main(int argc, char** argv)
 
 		// Send the very last packet
 		uint8_t last[32];
-		for(int i = 0; i < 32; i++){
-			last[i] = '\0';
+		if(interrupt_flag == 1)
+		{
+			for(int i = 0; i < 32; i++){
+				last[i] = '\0';
+			}
+			last[1] = '8';
+			last[2] = 'P'; // Premature
+			last[3] = 'E'; // End
+			last[4] = 'o'; // of
+			last[5] = 'T'; // Transmission
+			
+			radio.write(last, sizeof(last));
+			sleep(1);
 		}
-		last[1] = '9';
-		radio.write(last, sizeof(last));
-		sleep(1);
+		else 
+		{
+			for(int i = 0; i < 32; i++){
+				last[i] = '\0';
+			}
+			last[1] = '9';
+			radio.write(last, sizeof(last));
+			sleep(1);
+		}
 	} // file_tx loop
 } // main
 
