@@ -1,0 +1,18 @@
+Compile command for wiringPi c code:
+g++ -Wall -o read_ads read_ads.cpp -lwiringPi -std=c++11
+
+Read ADS:
+./read_ads
+
+Transmit:
+sudo ./combined [filename]
+or: 
+sudo ./combined [filename] -h
+
+Receive:
+sudo ./combined
+or: 
+sudo ./combined -h
+
+Plot data in terminal (Using a package called 'feedgnuplot' to send data to gnuplot):
+cat out.t | feedgnuplot --terminal 'dumb 80, 24' --exit
