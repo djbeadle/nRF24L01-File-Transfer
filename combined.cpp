@@ -27,6 +27,9 @@
 // For signal handler:
 #include <csignal> 
 
+// For stol:
+#include <string>
+
 using namespace std;
 
 //
@@ -182,6 +185,9 @@ int main(int argc, char** argv)
                 }
 
                 int start = 0;
+		unsigned long recv_pkts = 0; // the total # of data pkts
+		uint32_t filesize; 
+		uint32_t total_pkts = 0; 
                 int highest_pkt_num = 0;
                 while(start != 2 && interrupt_flag == 0)
                 {
@@ -203,6 +209,7 @@ int main(int argc, char** argv)
                                         }
                                         // fprintf(output_file, "(!%u!)", pkt_num);
                                         fputs((char*)data+1, output_file);
+					recv_pkts++;
 
                                 }
                                 // Respond to special packet:
@@ -212,6 +219,7 @@ int main(int argc, char** argv)
                                         uint8_t buf[256];
                                         uint8_t buf_ptr = 0;
                                         cout << "Received a special packet!\n";
+					printf("Received %d out of %d packets", recv_pkts, total_pkts);
                                         // print_packet(data);
                                         // print out the number of packets missing:
                                         int num_missing = 0;
@@ -231,7 +239,12 @@ int main(int argc, char** argv)
                                 {
                                         cout << "File Transfer beginning!\n";
                                         fputs((char*)data, output_file);
-                                        printf("Filesize: %s\n", (char*)data+2);
+					// The filesize is type uint32_t, which is 32 bits or 4 bytes. Hence the magic number 4. 
+					memcpy(&filesize, data+2, 4);
+					// Total_pkts is always off by one. Add one to fix. 
+					total_pkts = filesize / 30 + 1;
+                                        printf("Filesize: %d\n", filesize);
+					printf("Total Pkts: %d\n", total_pkts);
                                         counter++;
                                         start = 1;
                                 }
@@ -239,6 +252,7 @@ int main(int argc, char** argv)
                                 else if ((char*)data[0] == '\0' && (char)data[1] == '9')
                                 {
                                         cout << "Recv'ed Ending Packet!\n";
+					printf("Received %d out of %d packets", recv_pkts, total_pkts);
                                         start = 2;
                                         // print out the number of packets missing:
                                         int num_missing = 0;
@@ -278,7 +292,10 @@ int main(int argc, char** argv)
 			first[i] = '\0';
 		}
 		first[1] = '1';
-		sprintf((char*)first+2, "%zd", getFilesize(filename));
+		// sprintf((char*)first+2, "%zd", getFilesize(filename));
+		uint32_t filesize = getFilesize(filename);
+		// the filesize is type uint32_t, which is 32 bits, or 4 bytes; 
+		memcpy(first+2, &filesize, 4);
 		radio.write(first, sizeof(first));
 
 		// forever loop
