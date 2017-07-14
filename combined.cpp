@@ -195,21 +195,30 @@ int main(int argc, char** argv)
                         {
                                 radio.read(&data,32);
                                 // print_packet(data, output_file);
+
                                 // Read normal data packets:
                                 if((char*)data[0] != '\0')
                                 {
+                                        uint8_t pkt_num = data[0];
+
+					// Drop any packets we've already received (The ack must not have made it back to the sender)
+					if(packets[pkt_num] == true)
+					{
+						continue;
+					}
 
                                         // keep track of all the packets we've received in this set of 256
-                                        uint8_t pkt_num = data[0];
                                         packets[pkt_num] = true;
                                         highest_pkt_num = pkt_num > highest_pkt_num ? pkt_num : highest_pkt_num;
                                         if(hide != 1){
                                                 // printf("(!%u!)", pkt_num);
                                                 cout << (char*)data+1;
                                         }
-                                        // fprintf(output_file, "(!%u!)", pkt_num);
+                                        // fprintf(output_file, "!%u!", pkt_num);
                                         fputs((char*)data+1, output_file);
 					recv_pkts++;
+					// reset the array of packets we've received. 
+					memset(packets, 0, sizeof(packets));
 
                                 }
                                 // Respond to special packet:
