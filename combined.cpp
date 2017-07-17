@@ -217,8 +217,6 @@ int main(int argc, char** argv)
                                         // fprintf(output_file, "!%u!", pkt_num);
                                         fputs((char*)data+1, output_file);
 					recv_pkts++;
-					// reset the array of packets we've received. 
-					memset(packets, 0, sizeof(packets));
 
                                 }
                                 // Respond to special packet:
