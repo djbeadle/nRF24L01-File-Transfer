@@ -361,14 +361,8 @@ int main(int argc, char** argv)
 			// printf("Initiating Basic Data Transfer\n\r");
 
 			long int cycles = 3;
-			while(true && interrupt_flag == 0){
-				if(radio.write(&code,32) == false) {
-				fprintf(stderr, "resending pkt: %d \"%s\"\n", code[0], code+1);
-				}
-				else
-				{
-					break;
-				}
+			if(radio.write(&code,32) == false) {
+				fprintf(stderr, "TX Failed: %d \"%s\"\n", code[0], code+1);
 			}
 			/*
 			while(radio.writeFast(&code,32) == false) {
