@@ -290,6 +290,7 @@ int main(int argc, char** argv)
                                 }
                         }
 		}
+		fclose(output_file);
 	} // file_rx loop
 	else if (role == role_ping_out)
 	{
