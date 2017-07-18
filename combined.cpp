@@ -226,7 +226,9 @@ int main(int argc, char** argv)
                                         }
 					
 					// The data[0] is pkt_num
-					memcpy(pkt_buf + (30*(pkt_num%255)), data+1, 30);
+					print_packet(data);
+					printf("packet len: %d\n", strlen((char*)data));
+					memcpy(pkt_buf + (30*(pkt_num%255)), data+1, strnlen((char*)data+1, 30));
 					recv_pkts++;
 
                                 }
@@ -298,7 +300,14 @@ int main(int argc, char** argv)
 					
 					// pkt_id starts at 1, so the first
 					// 30 bytes of pkt_buf are empty
-					fwrite(pkt_buf+30, sizeof(uint8_t), (highest_pkt_num) * 30, output_file);
+					// 
+					// The last packet may not have been
+					// a full 30 bytes, but we don't 
+					// want to have to do strlen() on
+					// the entire pkt_buf to know that
+					int size = (highest_pkt_num-1) * 30 + strnlen((char*)pkt_buf+(highest_pkt_num)*30, 30); 
+					printf("strlen(size): %d\n", size);
+					fwrite(pkt_buf+30, sizeof(uint8_t), size, output_file);
                                 }
                                 // Premature Termination:
                                 else if ((char*)data[0] == '\0' && (char)data[1] == '8')
@@ -314,9 +323,11 @@ int main(int argc, char** argv)
                                         }
                                         printf("Num missing: %d/%d\n", num_missing, highest_pkt_num);
                                 }
+				// Everything else is junk. 
                                 else
                                 {
-                                        //cout << "Something's screwed up with this packet and I don't know what.\n";
+					cout << "Junk Packet\n";
+					print_packet(data);
                                 }
                         }
 		}
