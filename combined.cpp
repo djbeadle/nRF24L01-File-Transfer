@@ -225,9 +225,6 @@ int main(int argc, char** argv)
                                                 cout << (char*)data+1;
                                         }
 					
-					// The data[0] is pkt_num
-					print_packet(data);
-					printf("packet len: %d\n", strlen((char*)data));
 					memcpy(pkt_buf + (30*(pkt_num%255)), data+1, strnlen((char*)data+1, 30));
 					recv_pkts++;
 
