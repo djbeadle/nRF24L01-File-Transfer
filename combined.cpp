@@ -83,7 +83,7 @@ int main(int argc, char** argv)
 	fstream *file;
 	char *filename = argv[1];
 
-	bool packets[256];
+	uint8_t packets[256];
 	int hide = 0;
 	if(argc == 3)
 	{
@@ -179,22 +179,30 @@ int main(int argc, char** argv)
                         return 6;
                 }
 
-                // set the entire packet array equal to 0
+                // This array indiciates if we've received this respective
+		// packet or not. 
                 for(int i = 0; i < 256; i++){
-                        packets[i] = false;
+                        packets[i] = 0;
                 }
 
-                int start = 0;
-		unsigned long recv_pkts = 0; // the total # of data pkts
+                int start = 0; // Flow control
+		unsigned long recv_pkts = 0; // the total # of data pkts we've received
 		uint32_t filesize; 
-		uint32_t total_pkts = 0; 
-                int highest_pkt_num = 0;
+		uint32_t total_pkts = 0; // total # of data pkts we're expecting, calculated from the filesize. 
+
+		// packet buffer
+		// Store every packet we receive in it's respective slot and then write them all as a unit. 
+		int payload_bytes = 30;
+		uint8_t *pkt_buf = (uint8_t*)malloc(payload_bytes * 255);
+                int highest_pkt_num = 0; // Keeps track of our max place in the circular packet buffer
+		memset(pkt_buf, 'a', payload_bytes * 255);
+		
+		// Receive all the packets: 
                 while(start != 2 && interrupt_flag == 0)
                 {
                         while(start != 2 && radio.available() && interrupt_flag == 0)
                         {
                                 radio.read(&data,32);
-                                // print_packet(data, output_file);
 
                                 // Read normal data packets:
                                 if((char*)data[0] != '\0')
@@ -202,20 +210,23 @@ int main(int argc, char** argv)
                                         uint8_t pkt_num = data[0];
 
 					// Drop any packets we've already received (The ack must not have made it back to the sender)
-					if(packets[pkt_num] == true)
+					if(packets[pkt_num % 255] == true)
 					{
+						printf("Drop pkt: %d\n", pkt_num);
 						continue;
 					}
 
-                                        // keep track of all the packets we've received in this set of 256
-                                        packets[pkt_num] = true;
+                                        // keep track of all the packets we've received in this set of 255
+                                        packets[pkt_num % 255] = 1;
                                         highest_pkt_num = pkt_num > highest_pkt_num ? pkt_num : highest_pkt_num;
                                         if(hide != 1){
+						// Uncomment the next line if you want to insert each packet number into the output
                                                 // printf("(!%u!)", pkt_num);
                                                 cout << (char*)data+1;
                                         }
-                                        // fprintf(output_file, "!%u!", pkt_num);
-                                        fputs((char*)data+1, output_file);
+					
+					// The data[0] is pkt_num
+					memcpy(pkt_buf + (30*(pkt_num%255)), data+1, 30);
 					recv_pkts++;
 
                                 }
@@ -227,7 +238,6 @@ int main(int argc, char** argv)
                                         uint8_t buf_ptr = 0;
                                         cout << "Received a special packet!\n";
 					printf("Received %d out of %d packets", recv_pkts, total_pkts);
-                                        // print_packet(data);
                                         // print out the number of packets missing:
                                         int num_missing = 0;
                                         for(uint8_t i = 1; i < 255; i++)
@@ -236,10 +246,22 @@ int main(int argc, char** argv)
                                                 buf[buf_ptr++] = i;
                                                 // printf("%d: %s\n", i, packets[i] ? "1" : "0");
                                         }
-                                        printf("Num missing: %d/255\n", num_missing);
-                                // string temp= "";
-                                // cout << "Press Enter to Continue...\n";
-                                // getline(cin, temp);
+                                        printf("\nNum missing: %d/%d\n", num_missing, highest_pkt_num);
+					// TODO: Get the missing packets
+					// ...
+					// ...
+					// Okay, lets say we've got them.
+					
+					// pkt_id starts at 1, so the first
+					// 30 bytes of pkt_buf are empty
+					fwrite(pkt_buf+30, sizeof(uint8_t), 254*30, output_file);
+					// reset the packet buffer
+					memset(pkt_buf, '\0', 30 * 255);
+					// reset the highest_pkt_num
+					highest_pkt_num = 0;
+					// reset the received array
+					memset(packets, '0', sizeof(uint8_t) * 256);
+					
                                 }
                                 // Starting packet:
                                 else if((char*)data[0] == '\0' && (char)data[1] == '1')
@@ -269,6 +291,14 @@ int main(int argc, char** argv)
                                                 // printf("%d: %s\n", i, packets[i] ? "1" : "0");
                                         }
                                         printf("Num missing: %d/%d\n", num_missing, highest_pkt_num);
+					// TODO: Get the missing packets
+					// ...
+					// ...
+					// Okay, lets say we've got them.
+					
+					// pkt_id starts at 1, so the first
+					// 30 bytes of pkt_buf are empty
+					fwrite(pkt_buf+30, sizeof(uint8_t), (highest_pkt_num) * 30, output_file);
                                 }
                                 // Premature Termination:
                                 else if ((char*)data[0] == '\0' && (char)data[1] == '8')
@@ -334,9 +364,6 @@ int main(int argc, char** argv)
 				}
 				special[1] = '3';
 				radio.write(special, sizeof(special));
-			/*	string temp = "";
-				cout << "Press Enter to continue...\n";
-				getline(cin, temp);*/
 			}
 
 			code[0] = special_ctr;
