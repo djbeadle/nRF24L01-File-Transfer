@@ -321,6 +321,8 @@ int main(int argc, char** argv)
                         }
 		}
 		fclose(output_file);
+		free(pkt_buf);
+		free(save_name);
 	} // file_rx loop
 	else if (role == role_ping_out)
 	{
