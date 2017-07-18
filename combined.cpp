@@ -195,7 +195,7 @@ int main(int argc, char** argv)
 		int payload_bytes = 30;
 		uint8_t *pkt_buf = (uint8_t*)malloc(payload_bytes * 255);
                 int highest_pkt_num = 0; // Keeps track of our max place in the circular packet buffer
-		memset(pkt_buf, 'a', payload_bytes * 255);
+		memset(pkt_buf, '\0', payload_bytes * 255);
 		
 		// Receive all the packets: 
                 while(start != 2 && interrupt_flag == 0)
@@ -303,7 +303,6 @@ int main(int argc, char** argv)
 					// want to have to do strlen() on
 					// the entire pkt_buf to know that
 					int size = (highest_pkt_num-1) * 30 + strnlen((char*)pkt_buf+(highest_pkt_num)*30, 30); 
-					printf("strlen(size): %d\n", size);
 					fwrite(pkt_buf+30, sizeof(uint8_t), size, output_file);
                                 }
                                 // Premature Termination:
