@@ -61,7 +61,7 @@ void interrupt_handler(int nothing)
 
 void print_packet(uint8_t *pkt)
 {
-        printf("%d \"%s\"\n", (uint8_t*)pkt[0], (char*)pkt+1);
+	printf("%d \"%s\"\n", (uint8_t*)pkt[0], (char*)pkt+1);
 }
 
 void print_re_tx_packet(uint8_t *re_tx_request)
@@ -74,16 +74,100 @@ void print_re_tx_packet(uint8_t *re_tx_request)
 			printf("Found 0 at position: %d\n", i);
 			break;
 		}
-		
+
 		printf("%d: %d\n", i, re_tx_request[i]);
 	}
 	printf("returning\n");
 	return;
 }
 
+void respond_special_pkt(uint8_t *packets, unsigned long &recv_pkts, uint32_t &total_pkts, int &highest_pkt_num, int hide, uint8_t *pkt_buf, FILE *output_file)
+{
+	uint8_t special_response[32];
+	uint8_t buf[256];
+	int buf_ptr = 0;
+	cout << "Received a special packet!\n";
+	printf("Received %d out of %d packets", recv_pkts, total_pkts);
+	// Build an array with all the packets we're missing
+	for(uint8_t i = 1; i < 255; i++)
+	{
+		if(packets[i] == 0)
+		{
+			buf[buf_ptr++] = i;
+		}
+	}
+	printf("\nNum missing: %d/%d\n", buf_ptr, highest_pkt_num);
+	// print out the packets we're missing
+	// printf("missing: ");
+	/* for(int i = 0; i< buf_ptr; i++)
+	   {
+	   printf("%d ", buf[i]);
+	   }
+	   printf("\n");*/
+	// ask the transmitter to resend the packets we need.
+	uint8_t re_tx_request[32];
+	re_tx_request[0] = '\0'; //header
+	re_tx_request[1] = '2';
+	radio.stopListening();
+	for(int i = 0; i < buf_ptr; i+=29)
+	{
+		// determine how many items 
+		// we're copying and insert
+		// a 0 at the proper place
+		// at the end of the data
+		int copy_qty = 0;
+		if(buf_ptr - i > 29)
+		{
+			copy_qty = 29;
+			re_tx_request[31] = 0;
+		}	
+		else
+		{
+			copy_qty = buf_ptr - i;
+			// +2 to get past the '\0' and '2' in slots 0 and 1,
+			re_tx_request[2 + copy_qty] = 0;
+		}
+		memcpy(re_tx_request+2, buf+i, copy_qty);
+		if(hide != 1)
+		{
+			print_re_tx_packet(re_tx_request);
+		}
+		radio.write(&re_tx_request, sizeof(re_tx_request));
+	}
+
+	// pkt_id starts at 1, so the first
+	// 30 bytes of pkt_buf are empty
+	//
+	// The very last packet in the filemay not be a full 30 bytes, but
+	// we don't want to do strlen() on the entire pkt_buf to figure that
+	// out. Hence the crazy math here. 
+	int size = (highest_pkt_num-1)*30 + strnlen((char*)pkt_buf+(highest_pkt_num)*30, 30);
+	printf("size of final packet: %d", size);
+	fwrite(pkt_buf+30, sizeof(uint8_t), size, output_file);
+	// reset the packet buffer
+	memset(pkt_buf, '\0', 30 * 255);
+	// reset the highest_pkt_num
+	highest_pkt_num = 0;
+	// reset the received array
+	memset(packets, '0', sizeof(uint8_t) * 256);
+
+	// Build and transmit the all clear
+	// message telling the TX'er that
+	// it's safe to continue. 
+	uint8_t all_clear[32];
+	for(int i = 0; i< sizeof(all_clear); i++)
+	{
+		all_clear[i] = '\0';
+	}
+	all_clear[0] = '\0';
+	all_clear[1] = '4';
+	radio.write(&all_clear, 32);
+	radio.startListening();
+}
+
 void print_packet(uint8_t *pkt, FILE *file)
 {
-        fprintf(file, "\n!%d \"%s\"\n", (uint8_t*)pkt[0], (char*)pkt+1);
+	fprintf(file, "\n!%d \"%s\"\n", (uint8_t*)pkt[0], (char*)pkt+1);
 }
 
 size_t getFilesize (const char* filename){
@@ -178,31 +262,31 @@ int main(int argc, char** argv)
 	// file_rx loop
 	if(role == role_pong_back) {
 
-                int filename_length = 32;
-                char *save_name = (char*)malloc(filename_length);
-                FILE *output_file;
+		int filename_length = 32;
+		char *save_name = (char*)malloc(filename_length);
+		FILE *output_file;
 
-                cout << "Please enter a file name up to " << filename_length << " characters in length\n";
-                cout << "(This will overwrite any file with the same name)\n";
-                cout << "> ";
+		cout << "Please enter a file name up to " << filename_length << " characters in length\n";
+		cout << "(This will overwrite any file with the same name)\n";
+		cout << "> ";
 
-                cin.getline(save_name, filename_length);
-                output_file = fopen(save_name, "w");
+		cin.getline(save_name, filename_length);
+		output_file = fopen(save_name, "w");
 
-                if(output_file == NULL)
-                {
-                        cout << "Something weird happened trying to write to the file.\n";
-                        perror("The following error occurred: ");
-                        return 6;
-                }
+		if(output_file == NULL)
+		{
+			cout << "Something weird happened trying to write to the file.\n";
+			perror("The following error occurred: ");
+			return 6;
+		}
 
-                // This array indiciates if we've received this respective
+		// This array indiciates if we've received this respective
 		// packet or not. 
-                for(int i = 0; i < 256; i++){
-                        packets[i] = 0;
-                }
+		for(int i = 0; i < 256; i++){
+			packets[i] = 0;
+		}
 
-                int start = 0; // Flow control
+		int start = 0; // Flow control
 		unsigned long recv_pkts = 0; // the total # of data pkts we've received
 		uint32_t filesize; 
 		uint32_t total_pkts = 0; // total # of data pkts we're expecting, calculated from the filesize. 
@@ -211,20 +295,20 @@ int main(int argc, char** argv)
 		// Store every packet we receive in it's respective slot and then write them all as a unit. 
 		int payload_bytes = 30;
 		uint8_t *pkt_buf = (uint8_t*)malloc(payload_bytes * 255);
-                int highest_pkt_num = 0; // Keeps track of our max place in the circular packet buffer
+		int highest_pkt_num = 0; // Keeps track of our max place in the circular packet buffer
 		memset(pkt_buf, '\0', payload_bytes * 255);
-		
-		// Receive all the packets: 
-                while(start != 2 && interrupt_flag == 0)
-                {
-                        while(start != 2 && radio.available() && interrupt_flag == 0)
-                        {
-                                radio.read(&data,32);
 
-                                // Read normal data packets:
-                                if((char*)data[0] != '\0')
-                                {
-                                        uint8_t pkt_num = data[0];
+		// Receive all the packets: 
+		while(start != 2 && interrupt_flag == 0)
+		{
+			while(start != 2 && radio.available() && interrupt_flag == 0)
+			{
+				radio.read(&data,32);
+
+				// Read normal data packets:
+				if((char*)data[0] != '\0')
+				{
+					uint8_t pkt_num = data[0];
 
 					// Drop any packets we've already received (The ack must not have made it back to the sender)
 					if(packets[pkt_num % 255] == true)
@@ -233,164 +317,80 @@ int main(int argc, char** argv)
 						continue;
 					}
 
-                                        // keep track of all the packets we've received in this set of 255
-                                        packets[pkt_num % 255] = 1;
-                                        highest_pkt_num = pkt_num > highest_pkt_num ? pkt_num : highest_pkt_num;
-                                        if(hide != 1){
+					// keep track of all the packets we've received in this set of 255
+					packets[pkt_num % 255] = 1;
+					highest_pkt_num = pkt_num > highest_pkt_num ? pkt_num : highest_pkt_num;
+					if(hide != 1){
 						// Uncomment the next line if you want to insert each packet number into the output
-                                                // printf("(!%u!)", pkt_num);
-                                                cout << (char*)data+1;
-                                        }
-					
+						// printf("(!%u!)", pkt_num);
+						cout << (char*)data+1;
+					}
+
 					memcpy(pkt_buf + (30*(pkt_num%255)), data+1, strnlen((char*)data+1, 30));
 					recv_pkts++;
 
-                                }
-                                // Respond to special packet:
-                                else if ((char*)data[0] == '\0' && (char)data[1] == '3')
-                                {
-                                        uint8_t special_response[32];
-                                        uint8_t buf[256];
-                                        int buf_ptr = 0;
-                                        cout << "Received a special packet!\n";
-					printf("Received %d out of %d packets", recv_pkts, total_pkts);
-                                        // Build an array with all the packets we're missing
-					for(uint8_t i = 1; i < 255; i++)
-                                        {
-                                                if(packets[i] == 0)
-						{
-                                                	buf[buf_ptr++] = i;
-						}
-                                        }
-                                        printf("\nNum missing: %d/%d\n", buf_ptr, highest_pkt_num);
-					// print out the packets we're missing
-					// printf("missing: ");
-					/* for(int i = 0; i< buf_ptr; i++)
-					{
-						printf("%d ", buf[i]);
-					}
-					printf("\n");*/
-					// ask the transmitter to resend the packets we need.
-					uint8_t re_tx_request[32];
-					re_tx_request[0] = '\0'; //header
-					re_tx_request[1] = '2';
-					radio.stopListening();
-					for(int i = 0; i < buf_ptr; i+=29)
-					{
-						// determine how many items 
-						// we're copying and insert
-						// a 0 at the proper place
-						// at the end of the data
-						int copy_qty = 0;
-						if(buf_ptr - i > 29)
-						{
-							copy_qty = 29;
-							re_tx_request[31] = 0;
-						}	
-						else
-						{
-							copy_qty = buf_ptr - i;
-							// +2 to get past the '\0' and '2' in slots 0 and 1,
-							re_tx_request[2 + copy_qty] = 0;
-						}
-						memcpy(re_tx_request+2, buf+i, copy_qty);
-						if(hide != 1)
-						{
-							print_re_tx_packet(re_tx_request);
-						}
-						radio.write(&re_tx_request, sizeof(re_tx_request));
-					}
-					
-					// pkt_id starts at 1, so the first
-					// 30 bytes of pkt_buf are empty
-					fwrite(pkt_buf+30, sizeof(uint8_t), 254*30, output_file);
-					// reset the packet buffer
-					memset(pkt_buf, '\0', 30 * 255);
-					// reset the highest_pkt_num
-					highest_pkt_num = 0;
-					// reset the received array
-					memset(packets, '0', sizeof(uint8_t) * 256);
-					
-					// Build and transmit the all clear
-					// message telling the TX'er that
-					// it's safe to continue. 
-					uint8_t all_clear[32];
-					for(int i = 0; i< sizeof(all_clear); i++)
-					{
-						all_clear[i] = '\0';
-					}
-					all_clear[0] = '\0';
-					all_clear[1] = '4';
-					radio.write(&all_clear, 32);
-					radio.startListening();
-                                }
-                                // Starting packet:
-                                else if((char*)data[0] == '\0' && (char)data[1] == '1')
-                                {
-                                        cout << "File Transfer beginning!\n";
-                                        fputs((char*)data, output_file);
+				}
+				// Respond to special packet:
+				else if ((char*)data[0] == '\0' && (char)data[1] == '3')
+				{
+					respond_special_pkt(packets, recv_pkts, total_pkts, highest_pkt_num, hide, pkt_buf, output_file);
+				}
+				// Starting packet:
+				else if((char*)data[0] == '\0' && (char)data[1] == '1')
+				{
+					cout << "File Transfer beginning!\n";
+					fputs((char*)data, output_file);
 					// The filesize is type uint32_t, which is 32 bits or 4 bytes. Hence the magic number 4. 
 					memcpy(&filesize, data+2, 4);
 					// Total_pkts is always off by one. Add one to fix. 
 					total_pkts = filesize / 30 + 1;
-                                        printf("Filesize: %d\n", filesize);
+					printf("Filesize: %d\n", filesize);
 					printf("Total Pkts: %d\n", total_pkts);
-                                        counter++;
-                                        start = 1;
-                                }
-                                // Ending packet:
-                                else if ((char*)data[0] == '\0' && (char)data[1] == '9')
-                                {
-                                        cout << "Recv'ed Ending Packet!\n";
+					counter++;
+					start = 1;
+				}
+				// Ending packet:
+				else if ((char*)data[0] == '\0' && (char)data[1] == '9')
+				{
+					cout << "Recv'ed Ending Packet!\n";
 					printf("Received %d out of %d packets", recv_pkts, total_pkts);
-                                        start = 2;
-                                        // print out the number of packets missing:
-                                        int num_missing = 0;
-                                        for(int i = 1; i <= highest_pkt_num; i++)
-                                        {
-                                                num_missing += (packets[i] == 1 ? 0 : 1);
-                                                // printf("%d: %s\n", i, packets[i] ? "1" : "0");
-                                        }
-                                        printf("Num missing: %d/%d\n", num_missing, highest_pkt_num);
+					start = 2;
+					// print out the number of packets missing:
+					int num_missing = 0;
+					for(int i = 1; i <= highest_pkt_num; i++)
+					{
+						num_missing += (packets[i] == 1 ? 0 : 1);
+						// printf("%d: %s\n", i, packets[i] ? "1" : "0");
+					}
+					printf("Num missing: %d/%d\n", num_missing, highest_pkt_num);
 					// TODO: Get the missing packets
-					// ...
-					// ...
-					// Okay, lets say we've got them.
 					
-					// pkt_id starts at 1, so the first
-					// 30 bytes of pkt_buf are empty
-					// 
-					// The last packet may not have been
-					// a full 30 bytes, but we don't 
-					// want to have to do strlen() on
-					// the entire pkt_buf to know that
-					int size = (highest_pkt_num-1) * 30 + strnlen((char*)pkt_buf+(highest_pkt_num)*30, 30); 
-					fwrite(pkt_buf+30, sizeof(uint8_t), size, output_file);
-                                }
-                                // Premature Termination:
-                                else if ((char*)data[0] == '\0' && (char)data[1] == '8')
-                                {
-                                        cout << "\n Tranmission ended prematurely by the sender\n";
-                                        start = 2;
-                                        // print out the number of packets missing:
-                                        uint8_t buf[255];
+					respond_special_pkt(packets, recv_pkts, total_pkts, highest_pkt_num, hide, pkt_buf, output_file);
+				}
+				// Premature Termination:
+				else if ((char*)data[0] == '\0' && (char)data[1] == '8')
+				{
+					cout << "\n Tranmission ended prematurely by the sender\n";
+					start = 2;
+					// print out the number of packets missing:
+					uint8_t buf[255];
 					uint8_t buf_ptr = 0;
 					for(int i = 1; i <= highest_pkt_num; i++)
-                                        {
-                                                if(packets[i] == 0)
+					{
+						if(packets[i] == 0)
 						{
-                                                	buf[buf_ptr++] = i;
+							buf[buf_ptr++] = i;
 						}
-                                        }
-                                        printf("Num missing: %d/%d\n", buf_ptr, highest_pkt_num);
-                                }
+					}
+					printf("Num missing: %d/%d\n", buf_ptr, highest_pkt_num);
+				}
 				// Everything else is junk. 
-                                else
-                                {
+				else
+				{
 					cout << "Junk Packet\n";
 					print_packet(data);
-                                }
-                        }
+				}
+			}
 		}
 		fclose(output_file);
 		free(pkt_buf);
@@ -418,7 +418,7 @@ int main(int argc, char** argv)
 		}
 		int eof = 0;
 		int ctr = 0; // the number of times we've read 31 characters from the file
-		
+
 		// Special_ctr is the packet id #.
 		// It starts at 1, packets starting with 0 are reserved for special control packets
 		uint8_t special_ctr = 1;
@@ -439,46 +439,46 @@ int main(int argc, char** argv)
 				special[1] = '3';
 				radio.write(special, sizeof(special));
 				radio.startListening();
-					
-                                // resend the packets the client asks for
-                                int all_clear = 0;
-                                while(all_clear == 0)
-                                {
-                                        if(radio.available())
-                                        {
-                                                uint8_t data[32];
-                                                memset(data, '\0', 32);
-                                                radio.read(&data, 32);
-                                                if(data[0] == '\0' && data[1] == '2')
-                                                {
-                                                        cout << "print pkt\n";
-                                                        print_re_tx_packet(data);
-                                                }
-                                                if(data[0] == '\0' && data[1] == '4')
-                                                {
-                                                        all_clear = 1;
-                                                        cout << "All clear received, continuing!\n";
-                                                }
-                                        }
-                                }
+
+				// resend the packets the client asks for
+				int all_clear = 0;
+				while(all_clear == 0)
+				{
+					if(radio.available())
+					{
+						uint8_t data[32];
+						memset(data, '\0', 32);
+						radio.read(&data, 32);
+						if(data[0] == '\0' && data[1] == '2')
+						{
+							cout << "print pkt\n";
+							print_re_tx_packet(data);
+						}
+						if(data[0] == '\0' && data[1] == '4')
+						{
+							all_clear = 1;
+							cout << "All clear received, continuing!\n";
+						}
+					}
+				}
 				radio.stopListening();
 			}
-                        /* Drop some packets to simulate packet loss */
-                        /* if(special_ctr >= 10 && special_ctr <= 50)
-                        {
-                                for(int i = 1; i < 31; i++) {
-                                        file->get(code[i]);
-                                        if(*file == NULL) {
-                                                printf("Hit EOF!\n");
-                                                eof = 1;
-                                                code[i] = '\0';
-                                                break;
-                                        }
-                                }
-                                printf("dropped: %d ", special_ctr);
-                                special_ctr++;
-                                continue;
-                        } */
+			/* Drop some packets to simulate packet loss */
+			/* if(special_ctr >= 10 && special_ctr <= 50)
+			   {
+			   for(int i = 1; i < 31; i++) {
+			   file->get(code[i]);
+			   if(*file == NULL) {
+			   printf("Hit EOF!\n");
+			   eof = 1;
+			   code[i] = '\0';
+			   break;
+			   }
+			   }
+			   printf("dropped: %d ", special_ctr);
+			   special_ctr++;
+			   continue;
+			   } */
 
 			/* Transmit normal data packets */
 			code[0] = special_ctr;
@@ -502,7 +502,7 @@ int main(int argc, char** argv)
 			if(radio.write(&code,32) == false) {
 				fprintf(stderr, "TX Failed: %d \"%s\"\n", code[0], code+1);
 			}
-	
+
 			if(hide != 1)
 			{
 				cout << "Sent!\n";
@@ -511,7 +511,7 @@ int main(int argc, char** argv)
 				counter+=3;
 			}
 			special_ctr++;
-			
+
 		} // read file loop
 
 		// Send the very last packet
@@ -526,7 +526,7 @@ int main(int argc, char** argv)
 			last[3] = 'E'; // End
 			last[4] = 'o'; // of
 			last[5] = 'T'; // Transmission
-			
+
 			radio.write(last, sizeof(last));
 			sleep(1);
 		}
