@@ -274,6 +274,7 @@ int main(int argc, char** argv)
 					uint8_t re_tx_request[32];
 					re_tx_request[0] = '\0'; //header
 					re_tx_request[1] = '2';
+					radio.stopListening();
 					for(int i = 0; i < buf_ptr; i+=29)
 					{
 						// determine how many items 
@@ -297,7 +298,6 @@ int main(int argc, char** argv)
 						{
 							print_re_tx_packet(re_tx_request);
 						}
-						radio.stopListening();
 						radio.write(&re_tx_request, sizeof(re_tx_request));
 					}
 					
@@ -438,13 +438,52 @@ int main(int argc, char** argv)
 				}
 				special[1] = '3';
 				radio.write(special, sizeof(special));
+				radio.startListening();
+					
+                                // resend the packets the client asks for
+                                int all_clear = 0;
+                                while(all_clear == 0)
+                                {
+                                        if(radio.available())
+                                        {
+                                                uint8_t data[32];
+                                                memset(data, '\0', 32);
+                                                radio.read(&data, 32);
+                                                if(data[0] == '\0' && data[1] == '2')
+                                                {
+                                                        cout << "print pkt\n";
+                                                        print_re_tx_packet(data);
+                                                }
+                                                if(data[0] == '\0' && data[1] == '4')
+                                                {
+                                                        all_clear = 1;
+                                                        cout << "All clear received, continuing!\n";
+                                                }
+                                        }
+                                }
+				radio.stopListening();
 			}
+                        /* Drop some packets to simulate packet loss */
+                        /* if(special_ctr >= 10 && special_ctr <= 50)
+                        {
+                                for(int i = 1; i < 31; i++) {
+                                        file->get(code[i]);
+                                        if(*file == NULL) {
+                                                printf("Hit EOF!\n");
+                                                eof = 1;
+                                                code[i] = '\0';
+                                                break;
+                                        }
+                                }
+                                printf("dropped: %d ", special_ctr);
+                                special_ctr++;
+                                continue;
+                        } */
 
+			/* Transmit normal data packets */
 			code[0] = special_ctr;
 			for(int i = 1; i < 31; i++) {
-			//	printf("i: %d\n", i);
 				file->get(code[i]);
-			//	printf("%d \"%s\"\n", code[0], code+1);
 				if(*file == NULL) {
 					printf("Hit EOF!\n");
 					eof = 1;
@@ -459,16 +498,10 @@ int main(int argc, char** argv)
 			}
 			ctr++;
 
-			// printf("Initiating Basic Data Transfer\n\r");
-
 			long int cycles = 3;
 			if(radio.write(&code,32) == false) {
 				fprintf(stderr, "TX Failed: %d \"%s\"\n", code[0], code+1);
 			}
-			/*
-			while(radio.writeFast(&code,32) == false) {
-			}
-			*/
 	
 			if(hide != 1)
 			{
@@ -479,7 +512,6 @@ int main(int argc, char** argv)
 			}
 			special_ctr++;
 			
-		//	usleep(6000);
 		} // read file loop
 
 		// Send the very last packet
