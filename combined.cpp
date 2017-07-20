@@ -321,7 +321,7 @@ int main(int argc, char** argv)
 					}
 					all_clear[0] = '\0';
 					all_clear[1] = '4';
-					// radio.write(&all_clear, 32);
+					radio.write(&all_clear, 32);
 					radio.startListening();
                                 }
                                 // Starting packet:
