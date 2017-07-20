@@ -64,6 +64,23 @@ void print_packet(uint8_t *pkt)
         printf("%d \"%s\"\n", (uint8_t*)pkt[0], (char*)pkt+1);
 }
 
+void print_re_tx_packet(uint8_t *re_tx_request)
+{
+	printf("Pkt id: %c\n", re_tx_request[1]);
+	for(int i = 2; i < 32; i++)
+	{
+		if(re_tx_request[i] == 0)
+		{
+			printf("Found 0 at position: %d\n", i);
+			break;
+		}
+		
+		printf("%d: %d\n", i, re_tx_request[i]);
+	}
+	printf("returning\n");
+	return;
+}
+
 void print_packet(uint8_t *pkt, FILE *file)
 {
         fprintf(file, "\n!%d \"%s\"\n", (uint8_t*)pkt[0], (char*)pkt+1);
@@ -234,22 +251,55 @@ int main(int argc, char** argv)
                                 {
                                         uint8_t special_response[32];
                                         uint8_t buf[256];
-                                        uint8_t buf_ptr = 0;
+                                        int buf_ptr = 0;
                                         cout << "Received a special packet!\n";
 					printf("Received %d out of %d packets", recv_pkts, total_pkts);
-                                        // print out the number of packets missing:
-                                        int num_missing = 0;
-                                        for(uint8_t i = 1; i < 255; i++)
+                                        // Build an array with all the packets we're missing
+					for(uint8_t i = 1; i < 255; i++)
                                         {
-                                                num_missing += (packets[i] == 1 ? 0 : 1);
-                                                buf[buf_ptr++] = i;
-                                                // printf("%d: %s\n", i, packets[i] ? "1" : "0");
+                                                if(packets[i] == 0)
+						{
+                                                	buf[buf_ptr++] = i;
+						}
                                         }
-                                        printf("\nNum missing: %d/%d\n", num_missing, highest_pkt_num);
-					// TODO: Get the missing packets
-					// ...
-					// ...
-					// Okay, lets say we've got them.
+                                        printf("\nNum missing: %d/%d\n", buf_ptr, highest_pkt_num);
+					// print out the packets we're missing
+					// printf("missing: ");
+					/* for(int i = 0; i< buf_ptr; i++)
+					{
+						printf("%d ", buf[i]);
+					}
+					printf("\n");*/
+					// ask the transmitter to resend the packets we need.
+					uint8_t re_tx_request[32];
+					re_tx_request[0] = '\0'; //header
+					re_tx_request[1] = '2';
+					for(int i = 0; i < buf_ptr; i+=29)
+					{
+						// determine how many items 
+						// we're copying and insert
+						// a 0 at the proper place
+						// at the end of the data
+						int copy_qty = 0;
+						if(buf_ptr - i > 29)
+						{
+							copy_qty = 29;
+							re_tx_request[31] = 0;
+						}	
+						else
+						{
+							copy_qty = buf_ptr - i;
+							// +2 to get past the '\0' and '2' in slots 0 and 1,
+							re_tx_request[2 + copy_qty] = 0;
+						}
+						memcpy(re_tx_request+2, buf+i, copy_qty);
+						if(hide != 1)
+						{
+							print_re_tx_packet(re_tx_request);
+						}
+						radio.stopListening();
+						radio.write(&re_tx_request, sizeof(re_tx_request));
+					}
 					
 					// pkt_id starts at 1, so the first
 					// 30 bytes of pkt_buf are empty
@@ -261,6 +311,18 @@ int main(int argc, char** argv)
 					// reset the received array
 					memset(packets, '0', sizeof(uint8_t) * 256);
 					
+					// Build and transmit the all clear
+					// message telling the TX'er that
+					// it's safe to continue. 
+					uint8_t all_clear[32];
+					for(int i = 0; i< sizeof(all_clear); i++)
+					{
+						all_clear[i] = '\0';
+					}
+					all_clear[0] = '\0';
+					all_clear[1] = '4';
+					// radio.write(&all_clear, 32);
+					radio.startListening();
                                 }
                                 // Starting packet:
                                 else if((char*)data[0] == '\0' && (char)data[1] == '1')
@@ -311,13 +373,16 @@ int main(int argc, char** argv)
                                         cout << "\n Tranmission ended prematurely by the sender\n";
                                         start = 2;
                                         // print out the number of packets missing:
-                                        int num_missing = 0;
-                                        for(int i = 1; i <= highest_pkt_num; i++)
+                                        uint8_t buf[255];
+					uint8_t buf_ptr = 0;
+					for(int i = 1; i <= highest_pkt_num; i++)
                                         {
-                                                num_missing += (packets[i] == 1 ? 0 : 1);
-                                                // printf("%d: %s\n", i, packets[i] ? "1" : "0");
+                                                if(packets[i] == 0)
+						{
+                                                	buf[buf_ptr++] = i;
+						}
                                         }
-                                        printf("Num missing: %d/%d\n", num_missing, highest_pkt_num);
+                                        printf("Num missing: %d/%d\n", buf_ptr, highest_pkt_num);
                                 }
 				// Everything else is junk. 
                                 else
