@@ -95,6 +95,7 @@ bool contained_in_array(uint8_t num, uint8_t *array, uint8_t loc)
 
 void send_special_pkt(uint8_t *packets)
 {
+	cout << "0\n";
 	// cout << "Special Packet time!\n";
 	uint8_t special[32];
 	for(int i = 0; i< 32; i++)
@@ -102,23 +103,33 @@ void send_special_pkt(uint8_t *packets)
 		special[i] = '\0';
 	}
 	special[1] = '3';
+	radio.stopListening();
 	radio.write(special, sizeof(special));
-	radio.startListening();
+	
+	cout << "1\n";
 
 	// resend the packets the client asks for
 	int all_clear = 0;
-	uint8_t resend_buf[255]; // array of the numbers of pkts we need to resened
-	uint8_t resend_buf_loc = 0; // next free spot in array
 	uint8_t num_pkts = 0; // number of pkts we are expecting
 	uint8_t num_pkts_recvd = 0; // number of pkts actually received
 	// keep track of the resend pkts by uniquely id'ing them with the
-	// first packet they request
+	// first packet they request. This array has a max size of 254/29=8
 	uint8_t *resend_pkts_recvd;
 	uint8_t resend_pkts_loc = 0; // next free spot in array
-	while(all_clear == 0)
+
+	uint8_t pkts_to_resend[255]; // A complete array of all the pkts we need to resend. This array could be up to 255. 
+	int pkts_to_resend_loc = 0;
+
+	// Loop until we get the complete list of pkts we need to resend
+	cout << "2\n";
+	radio.startListening();
+	cout << "5\n";
+	while(num_pkts_recvd == 0 || num_pkts_recvd != num_pkts)
 	{
+		cout << "4\n";
 		if(radio.available())
 		{
+			cout << "3\n";
 			uint8_t data[32];
 			memset(data, '\0', 32);
 			radio.read(&data, 32);
@@ -129,22 +140,70 @@ void send_special_pkt(uint8_t *packets)
 				{
 					num_pkts = data[2];
 					resend_pkts_recvd = (uint8_t*)malloc(sizeof(uint8_t) * num_pkts);
+					printf("num_pkts: %d\n", num_pkts);
+					printf("resend_pkts_recvd: %d\n", resend_pkts_recvd);
 				}
+				// If our ACK's don't make it back to the
+				// RX node, it's going to keep blasting
+				// more copies at it, but with different
+				// packet ID's (Which are set at the
+				// protocol level, and can't be manually set)
 				// Have we seen this resend request before?
 				// If so, drop it.
 				if(contained_in_array(data[3], resend_pkts_recvd, resend_pkts_loc) == true)
 				{
+					cout << "Dropped\n";
 					continue;
 				}
+				cout << "Not dropped\n";
 				resend_pkts_recvd[resend_pkts_loc++] = data[3]; 
+				// Grab all the pkts we have to resend and
+				// stick them in another array. 
+				for(int i = 3; i < 31; i++)
+				{
+					pkts_to_resend[pkts_to_resend_loc++] = data[i];
+				}
+					
 				num_pkts_recvd++; 
 				
 				cout << "print pkt\n";
 				print_re_tx_packet(data);
 			}
+			// If there are no packets to resend, just return; 
 			if(data[0] == '\0' && data[1] == '4')
 			{
 				all_clear = 1;
+				cout << "60\n";
+				cout << "All clear received, continuing!\n";
+				radio.stopListening();
+				return;
+			}
+		}
+	}
+	cout << "77\n";
+	// Resend the packets the RX'er is asking for
+	radio.stopListening();
+	for(int i = 0; i < pkts_to_resend_loc; i++)
+	{
+		int pkt_id = pkts_to_resend[i]; 
+		// Blast the packet on repeat until an ACK makes it back
+		while(radio.write(&packets[pkt_id], 32) == false)
+		{
+		}
+	}
+	radio.startListening();
+	
+	// Wait for the "All clear" packet telling us it's safe to continue
+	uint8_t buf[32]; 
+	memset(buf, '\0', 32);
+	while(false)
+	{
+		if(radio.available())
+		{
+			radio.read(&buf, 32);
+			if(buf[0] == '\0' && buf[1] == '2')
+			{
+				break;
 				cout << "All clear received, continuing!\n";
 			}
 		}
@@ -191,10 +250,8 @@ void respond_special_pkt(uint8_t *packets, unsigned long &recv_pkts, uint32_t &t
 	radio.stopListening();
 	for(int i = 0; i < buf_ptr; i+=re_tx_payload_size)
 	{
-		// determine how many items 
-		// we're copying and insert
-		// a 0 at the proper place
-		// at the end of the data
+		// determine how many items we're copying and insert a 0 at
+		// the proper place (after the end of the data)
 		int copy_qty = 0;
 		if(buf_ptr - i > re_tx_payload_size)
 		{
@@ -212,11 +269,37 @@ void respond_special_pkt(uint8_t *packets, unsigned long &recv_pkts, uint32_t &t
 		{
 			print_re_tx_packet(re_tx_request);
 		}
-		radio.write(&re_tx_request, sizeof(re_tx_request));
+		// Blast the re_tx_request packet to the TX'er until we get
+		// a succesfull ACK in response. 
+		while(radio.write(&re_tx_request, sizeof(re_tx_request)) == false)
+		{
+		}
 	}
+	// Receive the requested packets from the transmitter
+	radio.startListening();
+	for(int i = 0; i < num_re_tx_request; i++)
+	{
+		while(radio.available())
+		{
+			uint8_t data[32];
+			memset(data, '\0', 32);
+			radio.read(&data, 32);
+			
+			// If we've already seen the pkt, drop it
+			uint8_t pkt_num = data[0];
+			if(packets[pkt_num % 255] == true)
+				continue;
+			
+			memcpy(pkt_buf + (30*(pkt_num % 255)), data + 1, strnlen((char*)data+1, 30));
+			packets[pkt_num % 255] = 1;
+			break;
+		}
+	}
+	// At this point we should have everything
 
-	// pkt_id starts at 1, so the first
-	// 30 bytes of pkt_buf are empty
+	// Now write everything we have buffered to the file.
+	// 
+	// pkt_id starts at 1, so the first 30 bytes of pkt_buf are empty
 	//
 	// The very last packet in the file may not be a full 30 bytes, but
 	// we don't want to do strlen() on the entire pkt_buf to figure that
@@ -234,6 +317,7 @@ void respond_special_pkt(uint8_t *packets, unsigned long &recv_pkts, uint32_t &t
 	// Build and transmit the all clear
 	// message telling the TX'er that
 	// it's safe to continue. 
+	radio.stopListening();
 	uint8_t all_clear[32];
 	for(int i = 0; i< sizeof(all_clear); i++)
 	{
@@ -511,11 +595,13 @@ int main(int argc, char** argv)
 			// Why 255? Because max(uint8_t) == 255
 			if(special_ctr == 255)
 			{
+				cout << "Special Packet time!\n";
 				special_ctr = 1;
 				send_special_pkt(packets);
+				cout << "what next?\n";
 			}
 			/* Drop some packets to simulate packet loss */
-			/* if(special_ctr >= 10 && special_ctr <= 50)
+			if(special_ctr >= 10 && special_ctr <= 50)
 			   {
 			   for(int i = 1; i < 31; i++) {
 			   file->get(code[i]);
@@ -529,7 +615,7 @@ int main(int argc, char** argv)
 			   printf("dropped: %d ", special_ctr);
 			   special_ctr++;
 			   continue;
-			   } */
+			   }
 
 			/* Transmit normal data packets */
 			code[0] = special_ctr;
