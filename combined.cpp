@@ -747,6 +747,7 @@ int main(int argc, char** argv)
 				cout << "what next?\n";
 			}
 			/* Drop some packets to simulate packet loss */
+			/*
 			if(special_ctr >= 10 && special_ctr <= 50)
 			{
 				for(int i = 1; i < 31; i++) {
@@ -764,6 +765,7 @@ int main(int argc, char** argv)
 				special_ctr++;
 				continue;
 			}
+			*/
 
 			/* Transmit normal data packets */
 			code[0] = special_ctr;
@@ -787,11 +789,12 @@ int main(int argc, char** argv)
 			long int cycles = 3;
 			if(radio.write(&code,32) == false) {
 				fprintf(stderr, "TX Failed: %d \"%s\"\n", code[0], code+1);
-			}
-
-			if(hide != 1)
+			} else
 			{
-				cout << "Sent!\n";
+				if(hide != 1)
+				{
+					cout << "Sent!\n";
+				}
 			}
 			if(!radio.txStandBy()) {
 				counter+=3;
