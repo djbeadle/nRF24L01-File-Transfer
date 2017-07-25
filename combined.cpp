@@ -53,6 +53,9 @@ uint8_t data[32];
 static volatile int interrupt_flag = 0;
 unsigned long startTime, stopTime, counter, rxTimer=0;
 
+const int num_payload_bytes = 29; // 32 - 2 (header) - 1 (\0 at end)
+const int num_header_bytes = 2; // sizeof(uint16_t) = 2
+
 void interrupt_handler(int nothing)
 {
 	cout << "Ctrl-c pressed! Ending transmission and truncuating file.\n";
@@ -97,15 +100,15 @@ void write_to_file(uint8_t &highest_pkt_num, uint8_t *pkt_buf, uint8_t *packets,
 		printf("Nothing to write\n");
 		return;
 	}
-	int size = (highest_pkt_num-1)*30 + strnlen((char*)pkt_buf+(highest_pkt_num)*30, 30);
+	int size = (highest_pkt_num-1)*29 + strnlen((char*)pkt_buf+(highest_pkt_num)*29, 29);
 	printf("size of final packet: %d", size);
 	printf("*------------------------------------------------------------------------------------*\n");
 	printf("*-------------------WRITING THIS TO FILE---------------------------------------------*\n");
 	printf("\"%s\"", pkt_buf+30);
 	printf("*------------------------------------------------------------------------------------*\n");
-	fwrite(pkt_buf+30, sizeof(uint8_t), size, output_file);
+	fwrite(pkt_buf+29, sizeof(uint8_t), size, output_file);
 	// reset the packet buffer
-	memset(pkt_buf, '\0', 30 * 255);
+	memset(pkt_buf, '\0', 29 * 255);
 	// reset the highest_pkt_num
 	highest_pkt_num = 0;
 	// reset the received array
@@ -355,12 +358,16 @@ void respond_special_pkt(uint8_t *packets, unsigned long &recv_pkts, uint32_t &t
 		// Blast the re_tx_request packet to the TX'er until we get
 		// a succesfull ACK in response. 
 		cout << "RESPOND, GODDAMMIT!\n";
-		while(radio.write(&re_tx_request, sizeof(re_tx_request)) == false)
+		while(true)
 		{
+			if(radio.write(&re_tx_request, sizeof(re_tx_request)))
+				break;
+			else
+				cout << "-> re_tx_request packet TX failed.\n";
 		}
 		cout << "-> It responded!\n";
-		// At this point the TX'er knows what pkts it needs to resend to us. 
 	}
+	// At this point the TX'er knows what pkts it needs to resend to us. 
 	/*
 	// Receive the requested packets from the transmitter
 	radio.startListening();
@@ -412,7 +419,7 @@ void respond_special_pkt(uint8_t *packets, unsigned long &recv_pkts, uint32_t &t
 
 void print_packet(uint8_t *pkt, FILE *file)
 {
-	fprintf(file, "\n!%d \"%s\"\n", (uint8_t*)pkt[0], (char*)pkt+1);
+	fprintf(file, "\n!%d \"%s\"\n", (uint16_t*)pkt[0], (char*)pkt+2);
 }
 
 size_t getFilesize (const char* filename){
@@ -539,10 +546,9 @@ int main(int argc, char** argv)
 
 		// packet buffer
 		// Store every packet we receive in it's respective slot and then write them all as a unit. 
-		int payload_bytes = 30;
-		uint8_t *pkt_buf = (uint8_t*)malloc(payload_bytes * 255);
-		uint8_t highest_pkt_num = 0; // Keeps track of our max place in the circular packet buffer
-		memset(pkt_buf, '\0', payload_bytes * 255);
+		uint8_t *pkt_buf = (uint8_t*)malloc(num_payload_bytes * 255);
+		uint16_t highest_pkt_num = 0; // Keeps track of our max place in the circular packet buffer
+		memset(pkt_buf, '\0',num_payload_bytes * 255);
 
 		// Max packet num
 		// This is 254 for everything except for the last "block" of packets that get sent, because
@@ -573,84 +579,32 @@ int main(int argc, char** argv)
 				// Read normal data packets:
 				else if((char*)data[0] != '\0')
 				{
-					uint8_t pkt_num = data[0];
+					uint16_t pkt_num = data[0];
 
 					// Drop any packets we've already received (The our ack must not have made it back to the sender)
-					if(packets[pkt_num % 255] == true)
+					if(packets[pkt_num] == true)
 					{
 						printf("Drop pkt: %d\n", pkt_num);
 						continue;
 					}
 
 					// keep track of all the packets we've received in this set of 254
-					packets[pkt_num % 255] = 1;
+					packets[pkt_num] = 1;
 					packets_ctr++;
 					printf("Recv'ed %d out of %d packets\n", packets_ctr, max_pkt_num);
 					highest_pkt_num = pkt_num > highest_pkt_num ? pkt_num : highest_pkt_num;
 					if(hide != 1){
 						// Uncomment the next line if you want to insert each packet number into the output
 						// printf("(!%u!)", pkt_num);
-						cout << (char*)data+1;
+						cout << (char*)data+num_header_bytes;
 					}
 
-					memcpy(pkt_buf + (30*(pkt_num%255)), data+1, strnlen((char*)data+1, 30));
+					memcpy(pkt_buf + (num_payload_bytes*(pkt_num)), data+num_header_bytes, strnlen((char*)data+num_header_bytes, num_payload_bytes));
 					recv_pkts++;
 
 					// Everytime we get the full 254, send the "all clear" packet
 					printf("%d =?= %d\n", packets_ctr, max_pkt_num);
-					if(packets_ctr == max_pkt_num)
-					{
-						// At this point we should have everything
-						printf("*| GOT EVERYTHING! |*\n");
-						write_to_file(highest_pkt_num, pkt_buf, packets, output_file);
 
-						// reset the packets array
-						packets_ctr = 0;
-						for(int i = 0; i < 256; i++){
-							packets[i] = 0;
-						}
-
-						// Build and transmit the all clear
-						// message telling the TX'er that
-						// it's safe to continue. 
-						radio.stopListening();
-						uint8_t all_clear[32];
-						for(int i = 0; i< sizeof(all_clear); i++)
-						{
-							all_clear[i] = '\0';
-						}
-						all_clear[0] = '\0';
-						all_clear[1] = '4';
-
-						// blast the all clear packet untill we get a successful ACK.
-						// TODO: What if ACK is lost and TX'er starts transmitting new data packets? 
-						while(true)
-						{
-							if(radio.write(&all_clear, 32))
-							{
-								cout << "All clear sent successfully\n";
-								radio.startListening();
-								break;
-							}
-							else
-							{
-								cout << "Sending all clear failed\n";
-								// Check if something's waiting for us... presumably it's a new data packet, so break anyways. 
-								radio.startListening();
-								if(radio.available())
-								{
-									break;
-								}
-							}
-						}
-					}
-
-				}
-				// Respond to special packet:
-				else if ((char*)data[0] == '\0' && (char)data[1] == '3')
-				{
-					max_pkt_num = data[2];
-					respond_special_pkt(packets, recv_pkts, total_pkts, max_pkt_num, hide, pkt_buf, output_file);
 				}
 				// Ending packet:
 				else if ((char*)data[0] == '\0' && (char)data[1] == '9')
@@ -730,22 +684,11 @@ int main(int argc, char** argv)
 
 		// Special_ctr is the packet id #.
 		// It starts at 1, packets starting with 0 are reserved for special control packets
-		uint8_t special_ctr = 1;
+		uint16_t special_ctr = 1;
 		// Packets are stored in this buffer and addressed by special_ctr
-		uint8_t *packets = (uint8_t*)malloc(30 * 255);
+		uint8_t *packets = (uint8_t*)malloc(num_payload_bytes * 255);
 		// Read the entire file
 		while (eof == 0 && interrupt_flag == 0) {
-			// Ask the receiver to confirm receipt of the last
-			// block of packets we've sent. Max of 254
-			// No comparison of checksums or anything, the receiver just checks to see if it has received every packet, and if it hasn't it asks for for them to be resubmitted. 
-			// Why 255? Because max(uint8_t) == 255
-			if(special_ctr == 255)
-			{
-				cout << "Special Packet time!\n";
-				send_special_pkt(packets, special_ctr);
-				special_ctr = 1;
-				cout << "what next?\n";
-			}
 			/* Drop some packets to simulate packet loss */
 			/*
 			if(special_ctr >= 10 && special_ctr <= 50)
@@ -768,8 +711,8 @@ int main(int argc, char** argv)
 			*/
 
 			/* Transmit normal data packets */
-			code[0] = special_ctr;
-			for(int i = 1; i < 31; i++) {
+			memcpy(code, &special_ctr, 2);
+			for(int i = 0 + num_header_bytes; i < 31; i++) {
 				file->get(code[i]);
 				if(*file == NULL) {
 					printf("Hit EOF!\n");
@@ -778,11 +721,11 @@ int main(int argc, char** argv)
 					break;
 				}
 			}
-			memcpy(packets + (30*special_ctr), code, 30);
+			memcpy(packets + (num_payload_bytes*special_ctr), code, num_payload_bytes);
 			code[31] = '\0';
 			if(hide != 1)
 			{
-				printf("pkt: %d \"%s\"\n", code[0], code+1);
+				printf("pkt: %d \"%s\"\n", code[0], code+num_header_bytes);
 			}
 			ctr++;
 
@@ -822,7 +765,7 @@ int main(int argc, char** argv)
 		else 
 		{
 			printf("special_ctr: %d\n", special_ctr);
-			send_special_pkt(packets, special_ctr);
+			// send_special_pkt(packets, special_ctr);
 			for(int i = 0; i < 32; i++){
 				last[i] = '\0';
 			}
