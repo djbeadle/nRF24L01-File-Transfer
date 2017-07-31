@@ -105,12 +105,12 @@ void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed
 	missing = (uint16_t*)malloc(sizeof(uint16_t) * num_missing);
 	uint16_t missing_loc = 0;
 
-	// TODO: GET RID OF FILE PRINTING DEBUGGING HERE. 
-	ofstream missing_pkts_file;
-	missing_pkts_file.open("missing_packets.txt");
+	// TODO: GET RID OF FILE PRINTING DEBUGGING HERE. 	
+	// ofstream missing_pkts_file;
+//	missing_pkts_file.open("missing_packets.txt");
 	for(uint16_t i = 1; i <= num_txed; i++)
 	{
-		missing_pkts_file << "i: " << i << ", recvd_array[i]: " << recvd_array[i] << "\n";
+//		missing_pkts_file << "i: " << i << ", recvd_array[i]: " << recvd_array[i] << "\n";
 		if(recvd_array[i] == 0)
 		{
 			// *(missing + (missing_loc * sizeof(uint16_t))) = i;
@@ -118,7 +118,7 @@ void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed
 			missing_loc++;
 		}
 	}
-	missing_pkts_file.close();
+//	missing_pkts_file.close();
 
 	// Figure out how many packets we need to send the transmitter to
 	// let it know what packets it needs to resend us. 
@@ -244,12 +244,12 @@ int main(int argc, char** argv)
 		cout << "RF24/examples/combined2.cpp\n";
 
 	radio.begin();                           // Setup and configure rf radio
-	radio.setChannel(4);
+	radio.setChannel(6);
 	radio.setPALevel(RF24_PA_MAX);
 	radio.setDataRate(RF24_2MBPS);
 	radio.setAutoAck(1);                     // Ensure autoACK is enabled
 	radio.setRetries(4,15);                  // Optionally, increase the delay between retries & # of retries
-	radio.setCRCLength(RF24_CRC_8);          // Use 8-bit CRC for performance
+	radio.setCRCLength(RF24_CRC_16);          // Use 8-bit CRC for performance
 	if(hide == 0){
 		radio.printDetails();
 		printf("\n ************ Role Setup ***********\n");
@@ -337,7 +337,7 @@ int main(int argc, char** argv)
 			uint8_t data[32];
 			if(radio.available())
 			{
-				cout << "control: " << control << "\n";
+				// cout << "control: " << control << "\n";
 				radio.read(&data, 32);
 				/* Receive the starting packet with our file size */
 				if(control == 0 && (char*)data[0] == '\0' && (char)data[1] == '1')
@@ -363,8 +363,18 @@ int main(int argc, char** argv)
 					continue;
 				}
 				/* Ending Packet */
-				else if (control > 0 && (char*)data[0] == '\0' && (char)data[1] == '9')
+				else if (control > 0 && (char)data[0] == '\0' && (char)data[1] == '\0' && (char)data[2] == '9')
 				{
+					cout << "ENDING PACKET\n";
+					cout << "*****************\n";
+					printf("* 0: %c\n", (char*)data[0]);
+					printf("* 1: %c\n", (char*)data[1]);
+					printf("* 2: %c\n", (char*)data[2]);
+					printf("* 3: %c\n", (char*)data[3]);
+					cout << "*****************\n";
+					uint16_t z_pkt_num = 0;
+					memcpy(&z_pkt_num, &data, 2);
+					printf("If this was a data pkt it's pkt_num would be: %d\n", z_pkt_num);
 					uint16_t num_txed;
 					memcpy(&num_txed, data+num_special_header_bytes, 2);
 					printf("TX'er said it sent %d packets\n", num_txed);
@@ -394,7 +404,7 @@ int main(int argc, char** argv)
 					uint16_t pkt_num;
 					memcpy(&pkt_num, data, 2);
 					num_recvd++;
-					printf("P: %d\n", pkt_num);
+					// printf("P: %d\n", pkt_num);
 
 					// Drop any packets we've already
 					// seen (The ACK we sent must not
