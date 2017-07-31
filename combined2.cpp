@@ -275,24 +275,6 @@ int main(int argc, char** argv)
 		}
 	}
 
-	/* Initialize Radio Read/Write Pipes */
-	if ( role == role_tx )
-	{
-		if(argc == 1){
-			cerr << "Transmit mode requires a filename as an argument!\n";
-			return 6;
-		}
-		radio.openWritingPipe(addresses[1]);
-		radio.openReadingPipe(1,addresses[0]);
-		radio.stopListening();
-	}
-	else
-	{
-		radio.openWritingPipe(addresses[0]);
-		radio.openReadingPipe(1,addresses[1]);
-		radio.startListening();
-	}
-
 	/************/
 	/* RECEIVER */
 	/************/
@@ -316,9 +298,9 @@ int main(int argc, char** argv)
 		char *save_name = (char*) malloc(filename_length);
 		FILE *output_file;
 
-		cerr << "Please enter a file name up to " << filename_length << " characters in length\n";
-		cerr << "(This will overwrite any file with the same name)\n";
-		cerr << "> ";
+		cout << "Please enter a file name up to " << filename_length << "characters in length\n";
+		cout << "(This will overwrite any file with the same name)\n";
+		cout << "> ";
 		cin.getline(save_name, filename_length);
 		output_file = fopen(save_name, "w");
 
@@ -329,6 +311,9 @@ int main(int argc, char** argv)
 			return 6;
 		}
 
+		radio.openWritingPipe(addresses[0]);
+		radio.openReadingPipe(1,addresses[1]);
+		radio.startListening();
 		/* Packet RX Loop: */
 		uint8_t data[32];
 		/* 
@@ -477,6 +462,13 @@ int main(int argc, char** argv)
 	/***************/
 	else if(role == role_tx)
 	{
+		if(argc == 1){
+			cerr << "Transmit mode requires a filename as an argument!\n";
+			return 6;
+		}
+		radio.openWritingPipe(addresses[1]);
+		radio.openReadingPipe(1,addresses[0]);
+		radio.stopListening();
 		cout << "TX'ing\n";
 		// Send the very first packet with the filesize:
 		uint8_t first[32];
