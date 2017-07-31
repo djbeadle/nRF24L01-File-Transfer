@@ -306,6 +306,11 @@ int main(int argc, char** argv)
 		uint8_t *pkt_buf; // Store every pkt before writing it.
 		bool *recvd_array; // Keep track of which slots in the pkt_buf array have been written to
 
+		float progress = 0.0;
+		float progress_inc = 0;
+		int progress_ctr = 100;
+		int bar_width = 70;
+
 		/* Open a file for writing to */
 		int filename_length = 32;
 		char *save_name = (char*) malloc(filename_length);
@@ -334,6 +339,22 @@ int main(int argc, char** argv)
 		int control = 0; 
 		while(interrupt_flag == 0)
 		{
+			// Update our progress bar every 100 pkts
+			if(progress_ctr <= 0)
+			{
+				float normalized_progress = (float)(num_recvd - 1)/(float)(num_expected - 1);
+				cout << "[";
+				int pos = bar_width * normalized_progress;
+				for(int i = 0; i < bar_width; ++i)
+				{
+					if (i<pos) cout << "=";
+					else if (i==pos) cout << ">";
+					else cout << " ";
+				}
+				cout << "]" << int(normalized_progress*100.0) << " %\r";
+				cout.flush();
+				progress_ctr =100;
+			}
 			uint8_t data[32];
 			if(radio.available())
 			{
@@ -424,6 +445,7 @@ int main(int argc, char** argv)
 					*(recvd_array + (pkt_num * sizeof(bool))) = 1;
 					memcpy(pkt_buf + (pkt_num * num_payload_bytes), data + num_header_bytes, strnlen((char*)data + num_header_bytes, num_payload_bytes));
 					highest_pkt_num = (pkt_num > highest_pkt_num) ? pkt_num : highest_pkt_num;
+					progress_ctr--;
 				}
 			}
 			/* Check and see if we have everything! */
