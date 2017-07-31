@@ -61,52 +61,90 @@ void print_re_tx_packet(uint8_t *re_tx_request)
 	printf("**************\n");
 	printf("* Pkt id: %c\n", re_tx_request[1]);
 	printf("* Num re_tx_pkts: %d\n", re_tx_request[2]);
-	for(int i = 4; i < 32; i++)
+	for(int i = 4; i < num_re_tx_header_bytes + num_re_tx_payload_bytes; i+=sizeof(uint16_t))
 	{
-		if(re_tx_request[i] == '\0')
+		uint16_t val;
+		memcpy(&val, re_tx_request+i, sizeof(uint16_t));
+		if(val == 0)
 		{
 			printf("* Found 0 at position: %d\n", i);
 			break;
 		}
-
-		printf("* %d: %d\n", i, re_tx_request[i]);
+		printf("val: %d\n", val);
 	}
 	printf("**************\n");
 	return;
 }
 
+/* There are no missing packets we need retransmitted, so we'll send an empty re_tx packet to the TX'er */
+void send_all_clear()
+{
+	uint8_t data[32];
+	memset(&data, '\0', 32);
+	data[1] = '2';
+
+	// Hopefully the TX'er received the message. 
+	// Since we have everything, it isn't the end
+	// of the world if it doesn't. Since it exits after
+	// sending the ACK there's  no point in us trying to 
+	// send the all clear signal forever, though. 
+	radio.stopListening();
+	radio.write(&data, 32);
+	radio.startListening();
+}
+
+
 void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed, int num_missing)
 {
 	printf("Missing %d  packets\n", num_missing);
 	// Build an array with all of the packets we're missing:
-	uint16_t *missing = (uint16_t*)malloc(sizeof(uint16_t) * num_missing);
+	uint16_t *missing;
+	// TODO: Fix the missing array. I screwed up how the numbers are stored in it. 
+	uint16_t missing_size = sizeof(uint16_t)*num_missing*2;
+	printf("Size of missing: %d\n", missing_size);
+	missing = (uint16_t*)malloc(sizeof(uint16_t) * num_missing);
 	uint16_t missing_loc = 0;
-	for(uint16_t i = 1; i < num_txed; i++)
+
+	// TODO: GET RID OF FILE PRINTING DEBUGGING HERE. 
+	ofstream missing_pkts_file;
+	missing_pkts_file.open("missing_packets.txt");
+	for(uint16_t i = 1; i <= num_txed; i++)
 	{
-		if(*(recvd_array + i) == 0)
+		missing_pkts_file << "i: " << i << ", recvd_array[i]: " << recvd_array[i] << "\n";
+		if(recvd_array[i] == 0)
 		{
-			printf("Missing: %d\n", i);
-			*(missing + (missing_loc * sizeof(uint16_t))) = i;
+			// *(missing + (missing_loc * sizeof(uint16_t))) = i;
+			memcpy(&missing[missing_loc], &i, sizeof(uint16_t));
 			missing_loc++;
 		}
 	}
+	missing_pkts_file.close();
 
 	// Figure out how many packets we need to send the transmitter to
 	// let it know what packets it needs to resend us. 
-	uint8_t num_re_tx_pkts = (missing_loc * sizeof(uint16_t)) / num_re_tx_payload_bytes;
-	if((missing_loc * sizeof(uint16_t)) % num_re_tx_payload_bytes != 0)
+	int pkt_ids_per_pkt = num_re_tx_payload_bytes / sizeof(uint16_t);
+
+	uint16_t num_re_tx_pkts = (missing_loc) / pkt_ids_per_pkt;
+	if((missing_loc) % pkt_ids_per_pkt != 0)
 		num_re_tx_pkts += 1;
 
 	// Ask the transmitter to resend the packets we need
 	uint8_t re_tx_pkt[32];
-	re_tx_pkt[0] = '\0';
-	re_tx_pkt[1] = '2';
-	memcpy(re_tx_pkt+2, &num_re_tx_pkts, 2);
 
-	int pkt_ids_per_pkt = num_re_tx_payload_bytes / sizeof(uint16_t);
-	for(int i=0; i < missing_loc; i+=num_re_tx_payload_bytes)
+	for(int i=0; i < missing_loc; i+=pkt_ids_per_pkt)
 	{
-		printf("i: %d\n", i);
+		if(hide!=1)
+		{
+			printf("i: %d\n", i);
+		}
+
+		// Build the re_tx packet
+		memset(&re_tx_pkt[0], '\0', 32);
+		re_tx_pkt[0] = '\0';
+		re_tx_pkt[1] = '2';
+		printf("num_re_tx_pkts: %d\n", num_re_tx_pkts);
+		memcpy(&re_tx_pkt[2], &num_re_tx_pkts, 2);
+
 		// determine how many pkt ids we're putting into this re_tx
 		// pkt and insert a \0 at the proper place
 		int copy_qty;
@@ -121,14 +159,20 @@ void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed
 			re_tx_pkt[num_re_tx_header_bytes + (sizeof(uint16_t) * copy_qty)] = '\0';
 		}
 
-		memcpy(re_tx_pkt+num_re_tx_header_bytes, missing + (i * sizeof(uint16_t)), copy_qty * sizeof(uint16_t));
 		if(hide != 1)
+			printf("copy qty: %d\n", copy_qty);
+
+		for(int t = 0; t < copy_qty; t++)
 		{
-			print_re_tx_packet(re_tx_pkt);
+			memcpy(&re_tx_pkt[num_re_tx_header_bytes + t*sizeof(uint16_t)], &missing[i+t], sizeof(uint16_t));
 		}
+
+		if(hide != 1)
+			print_re_tx_packet(re_tx_pkt);
 
 		// Blast the re_tx_pkt to the transmitter until we receive
 		// an ACK in response
+		cout << "1\n";
 		if(hide != 1)
 			cout << "Sending re_tx_pkt\n";
 
@@ -138,14 +182,28 @@ void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed
 			if(radio.write(&re_tx_pkt, sizeof(re_tx_pkt)))
 				break;
 			else
+			{
 				if(hide!=1)
+				{
 					cout << " sending re_tx_pkt failed\n";
+				}
+				radio.startListening();
+				if(radio.available())
+				{
+					cout << "TX'er has sent us something. That must mean it thinks it knows all of the missing packets.\n";
+					break;
+				}
+				radio.stopListening();
+			}
 		}
 		radio.startListening();
 
 		if(hide != 1)
 			cout << "  Got a successful response!\n";
 	}
+	if(hide!=1)
+		cout << "Returning\n";
+	free(missing);
 }
 
 size_t getFilesize (const char* filename){
@@ -186,7 +244,7 @@ int main(int argc, char** argv)
 		cout << "RF24/examples/combined2.cpp\n";
 
 	radio.begin();                           // Setup and configure rf radio
-	radio.setChannel(1);
+	radio.setChannel(4);
 	radio.setPALevel(RF24_PA_MAX);
 	radio.setDataRate(RF24_2MBPS);
 	radio.setAutoAck(1);                     // Ensure autoACK is enabled
@@ -253,9 +311,9 @@ int main(int argc, char** argv)
 		char *save_name = (char*) malloc(filename_length);
 		FILE *output_file;
 
-		cout << "Please enter a file name up to " << filename_length << " characters in length\n";
-		cout << "(This will overwrite any file with the same name)\n";
-		cout << "> ";
+		cerr << "Please enter a file name up to " << filename_length << " characters in length\n";
+		cerr << "(This will overwrite any file with the same name)\n";
+		cerr << "> ";
 		cin.getline(save_name, filename_length);
 		output_file = fopen(save_name, "w");
 
@@ -279,6 +337,7 @@ int main(int argc, char** argv)
 			uint8_t data[32];
 			if(radio.available())
 			{
+				cout << "control: " << control << "\n";
 				radio.read(&data, 32);
 				/* Receive the starting packet with our file size */
 				if(control == 0 && (char*)data[0] == '\0' && (char)data[1] == '1')
@@ -299,15 +358,43 @@ int main(int argc, char** argv)
 					pkt_buf = (uint8_t*) malloc((num_expected+1)* num_payload_bytes);
 					memset(pkt_buf, '\0', (num_expected+1)*num_payload_bytes);
 					// recvd_array = (bool*)calloc(num_expected, sizeof(bool));
-					recvd_array = (bool*)malloc(num_expected*sizeof(bool));
+					recvd_array = (bool*)malloc((num_expected+1)*sizeof(bool));
 					control = 1; 
 					continue;
 				}
+				/* Ending Packet */
+				else if (control > 0 && (char*)data[0] == '\0' && (char)data[1] == '9')
+				{
+					uint16_t num_txed;
+					memcpy(&num_txed, data+num_special_header_bytes, 2);
+					printf("TX'er said it sent %d packets\n", num_txed);
+					printf("\nReceived %d out of %d packets\n", num_recvd, num_expected);
+					int num_missing = 0;
+					for(int i = 1; i <= num_expected; i++)
+					{
+						num_missing += (*(recvd_array + (i * sizeof(bool))) == 1 ? 0 : 1);
+					}
+					printf("num_missing: %d\n", num_missing);
+
+					if(num_missing ==0)
+					{
+						send_all_clear();
+					}
+					else
+					{
+						request_missing_pkts(pkt_buf, recvd_array, num_expected, num_missing);
+						cout << "Looping to receive the missing packets:\n";
+					}
+					control = 3;
+				}
 				/* Receive data packets */
-				else if(control > 0 && data[0] != '\0')
+				// else if(control > 0 && data[0] != '\0')
+				else
 				{
 					uint16_t pkt_num;
 					memcpy(&pkt_num, data, 2);
+					num_recvd++;
+					printf("P: %d\n", pkt_num);
 
 					// Drop any packets we've already
 					// seen (The ACK we sent must not
@@ -327,38 +414,30 @@ int main(int argc, char** argv)
 					*(recvd_array + (pkt_num * sizeof(bool))) = 1;
 					memcpy(pkt_buf + (pkt_num * num_payload_bytes), data + num_header_bytes, strnlen((char*)data + num_header_bytes, num_payload_bytes));
 					highest_pkt_num = (pkt_num > highest_pkt_num) ? pkt_num : highest_pkt_num;
-					num_recvd++;
-				}
-				/* Ending Packet */
-				else if (control > 0 && (char*)data[0] == '\0' && (char)data[1] == '9')
-				{
-					uint16_t num_txed;
-					memcpy(&num_txed, data+num_special_header_bytes, 2);
-					printf("TX'er said it sent %d packets\n", num_txed);
-					printf("\nReceived %d out of %d packets\n", num_recvd, num_expected);
-					int num_missing = 0;
-					for(int i = 1; i <= num_expected; i++)
-					{
-						num_missing += (*(recvd_array + (i * sizeof(bool))) == 1 ? 0 : 1);
-					}
-					printf("num_missing: %d\n", num_missing);
-					/* Get the missing packets */
-					if(num_missing != 0)
-					{
-						request_missing_pkts(pkt_buf, recvd_array, num_expected, num_missing);
-						continue;
-					}
-					uint16_t dsize = strlen((char*)pkt_buf+(highest_pkt_num*num_payload_bytes));
-					int size = (highest_pkt_num-1)*num_payload_bytes + strnlen((char*)pkt_buf+(highest_pkt_num*num_payload_bytes), num_payload_bytes);
-					printf("size: %d\n", size);
-					fwrite(pkt_buf+num_payload_bytes, sizeof(uint8_t), size, output_file);
-					puts("closing\n");
-					fclose(output_file);
-					puts("Wrote to file!\n");
-					break;
-
 				}
 			}
+			/* Check and see if we have everything! */
+			if(control == 3 && num_expected == num_recvd)
+			{
+				cout << "a\n";	
+				uint16_t dsize = strlen((char*)pkt_buf+(highest_pkt_num*num_payload_bytes));
+				int size = (highest_pkt_num-1)*num_payload_bytes + strnlen((char*)pkt_buf+(highest_pkt_num*num_payload_bytes), num_payload_bytes);
+				cout << "b\n";	
+				printf("size: %d\n", size);
+				fwrite(pkt_buf+num_payload_bytes, sizeof(uint8_t), size, output_file);
+				puts("closing\n");
+				fclose(output_file);
+				puts("Wrote to file!\n");
+				break;
+			}
+		}
+		
+		// TODO: GET RID OF FILE PRINTING DEBUGGING HERE. 
+		ofstream missing_pkts_file;
+		missing_pkts_file.open("missing_packets.txt");
+		for(uint16_t i = 1; i <= highest_pkt_num; i++)
+		{
+			missing_pkts_file << "i: " << i << ", recvd_array[i]: " << recvd_array[i] << "\n";
 		}
 	}
 	/***************/
@@ -366,6 +445,7 @@ int main(int argc, char** argv)
 	/***************/
 	else if(role == role_tx)
 	{
+		cout << "TX'ing\n";
 		// Send the very first packet with the filesize:
 		uint8_t first[32];
 		memset(&first, '\0', sizeof(first));
@@ -388,7 +468,7 @@ int main(int argc, char** argv)
 		// Initalize the array we'll be transmitting
 		char code[32];
 		memset(&code, '\0', 32);
-		
+
 		// Things we'll need later:
 		int eof = 0;
 		uint16_t special_ctr = 1; // This IDs the data pkts. Starts at 1, 0 is reserved for special packets
@@ -396,7 +476,7 @@ int main(int argc, char** argv)
 		// Store all the packets in a buffer addressed by special_ctr
 		// TODO: don't store entire file in memory, instead use fseek
 		uint8_t *packets = (uint8_t*)malloc(num_payload_bytes * total_num_pkts);
-		
+
 		// Read the entire file and store it into the packets array
 		while(eof==0 && interrupt_flag == 0)
 		{
@@ -425,13 +505,15 @@ int main(int argc, char** argv)
 				memcpy(&pkt_num, code, 2);
 				printf("pkt: %d \"%s\"\n", pkt_num, code+num_header_bytes);
 			}
-			
+
 			if(radio.write(&code, 32))
+			{
 				if(hide != 1)
 					cout << "  Sent!\n";
-			else 
-				if(hide!=1)
-					cout << "  Failed.\n";
+				else 
+					if(hide!=1)
+						cout << "  Failed.\n";
+			}
 
 			special_ctr++;
 		}
@@ -453,7 +535,8 @@ int main(int argc, char** argv)
 		}
 		else
 		{
-			printf("special_ctr: %d\n", special_ctr);
+			// The final pkt is transmitted and special counter is incremented. 
+			printf("Last pkt #: %d\n", special_ctr-1);
 			last[1] = '9';
 			while(true)
 			{
