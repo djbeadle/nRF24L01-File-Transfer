@@ -131,6 +131,14 @@ void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed
 	// Ask the transmitter to resend the packets we need
 	uint8_t re_tx_pkt[32];
 
+	if(missing_loc == 0)
+	{
+		memset(&re_tx_pkt[0], '\0', 32);
+		re_tx_pkt[0] = '\0';
+		re_tx_pkt[1] = '2';
+		memcpy(&re_tx_pkt[2], &num_re_tx_pkts, 2);
+	}
+
 	for(int i=0; i < missing_loc; i+=pkt_ids_per_pkt)
 	{
 		if(hide!=1)
@@ -447,14 +455,6 @@ int main(int argc, char** argv)
 				puts("Wrote to file!\n");
 				break;
 			}
-		}
-		
-		// TODO: GET RID OF FILE PRINTING DEBUGGING HERE. 
-		ofstream missing_pkts_file;
-		missing_pkts_file.open("missing_packets.txt");
-		for(uint16_t i = 1; i <= highest_pkt_num; i++)
-		{
-			missing_pkts_file << "i: " << i << ", recvd_array[i]: " << recvd_array[i] << "\n";
 		}
 	}
 	/***************/
