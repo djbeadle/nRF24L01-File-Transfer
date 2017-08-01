@@ -219,6 +219,7 @@ void send_missing_pkts(uint8_t *pkt_buf)
 			}
 		}
 	}
+	free(missing_pkts);
 }
 
 void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed, int num_missing)
@@ -366,6 +367,8 @@ int main(int argc, char** argv)
 		cout << "RF24/examples/combined2.cpp\n";
 
 	radio.begin();                           // Setup and configure rf radio
+	radio.flush_tx();
+	radio.flush_rx();
 	radio.setChannel(6);
 	radio.setPALevel(RF24_PA_MAX);
 	radio.setDataRate(RF24_2MBPS);
@@ -570,6 +573,9 @@ int main(int argc, char** argv)
 				break;
 			}
 		}
+		free(recvd_array);
+		free(save_name);
+		free(pkt_buf);
 	}
 	/***************/
 	/* TRANSMITTER */
@@ -709,5 +715,6 @@ int main(int argc, char** argv)
 			cout << "File transfer looks successful!\n";
 			sleep(1);
 		}
+		free(packets);
 	} // tx block
 } // main
