@@ -717,4 +717,7 @@ int main(int argc, char** argv)
 		}
 		free(packets);
 	} // tx block
+	radio.closeReadingPipe(addresses[0]);
+	radio.closeReadingPipe(addresses[1]);
+	radio.powerDown();
 } // main
