@@ -381,7 +381,7 @@ int main(int argc, char** argv)
 	radio.begin();                           // Setup and configure rf radio
 	radio.flush_tx();
 	radio.flush_rx();
-	radio.setChannel(6);
+	radio.setChannel(125); 			// Channel choice can have a big effect on packet corruption. 
 	radio.setPALevel(RF24_PA_MAX);
 	radio.setDataRate(RF24_2MBPS);
 	radio.setAutoAck(1);                     // Ensure autoACK is enabled
