@@ -250,13 +250,25 @@ void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed
 
 	// Ask the transmitter to resend the packets we need
 	uint8_t re_tx_pkt[32];
-
 	if(missing_loc == 0)
 	{
-		memset(&re_tx_pkt[0], '\0', 32);
-		re_tx_pkt[0] = '\0';
-		re_tx_pkt[1] = '2';
-		memcpy(&re_tx_pkt[2], &num_re_tx_pkts, 2);
+                // blast the packet for a max time of one minute
+                cout << "Don't need any packets resent, attempting to send all clear to transmitter.\n";
+                uint32_t time = millis();
+                while(time - millis() <= 60000)
+                {
+                        if(radio.write(&re_tx_pkt, 32) == false)
+                        {
+                                if(hide!=1) cout<<"Sending all clear packet failed!\n";
+                                else if(hide!=1)
+                                {
+                                        cout<<"Successfully sent all clear packet!\n";
+                                        return;
+                                }
+                        }
+                }
+                cout << "Sent all clear for one minute, no response. Presumabably the transmitter's ACKs are getting lost. Writing to file and exiting.\n";
+                return;
 	}
 
 	for(int i=0; i < missing_loc; i+=pkt_ids_per_pkt)
