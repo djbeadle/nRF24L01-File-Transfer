@@ -19,7 +19,7 @@
 using namespace std;
 
 // Uncomment this to drop every packet where pkt_num % 25 == 0
-// #define pkt_loss 25
+#define pkt_loss 25
 
 //
 // Hardware configuration
@@ -52,6 +52,20 @@ void interrupt_handler(int nothing)
 {
 	cout << "Ctrl-c pressed! Ending transmission and truncuating file.\n";
 	interrupt_flag = 1;
+}
+
+uint8_t fletcher_8(uint8_t *data, size_t size)
+{
+	uint8_t sum1 = 0;
+	uint8_t sum2 = 0;
+	//printf("fletcher computation: \n");
+	while(size--)
+	{
+	//	printf("i: %d, c: %c\n", size, *data);
+		sum1+=*data++;
+		sum2+= sum1;
+	}
+	return (sum1&0xF) | (sum2<<4);
 }
 
 void print_packet(uint8_t *pkt)
@@ -119,10 +133,11 @@ void send_all_clear()
 	radio.write(&data, 32);
 	radio.startListening();
 }
-void send_missing_pkts(uint8_t *pkt_buf)
+int send_missing_pkts(uint8_t *pkt_buf)
 {
 	uint16_t num_expecting = 0; // number of re_tx pkts we're looking for
 	uint16_t num_recvd = 0; // number of re_tx pkts we've actually received
+	bool anything_recvd = 0; 
 	uint8_t data[32];
 
 	uint16_t *missing_pkts; // array of the packets we're missing
@@ -134,7 +149,7 @@ void send_missing_pkts(uint8_t *pkt_buf)
 	uint32_t start = millis();
 	// Wait 20 seconds for a response. If nothing comes in, presumably 
 	// the receiver didn't need any packets re tx'ed and just quit. 
-	while(millis() - start < 20000)
+	while(anything_recvd == 0 || (num_recvd < num_expecting && millis() - start < 60000))
 	{
 		if(radio.available()){
 			radio.read(&data, 32);
@@ -146,18 +161,19 @@ void send_missing_pkts(uint8_t *pkt_buf)
 				memcpy(&pkt_id, data + num_re_tx_header_bytes, sizeof(uint16_t));
 				if(hide!=1) printf("Re_TX_request pkt_id: %d\n", pkt_id);
 				if(first == 0){
+					anything_recvd = 1;
 
 					memcpy(&num_expecting, data+2, sizeof(uint16_t));
 					if(hide!=1) printf("num_expecting: %d\n", num_expecting);
-					missing_pkts = (uint16_t*)malloc(sizeof(uint16_t) * num_expecting);
+					missing_pkts = (uint16_t*)malloc(sizeof(uint16_t) * num_expecting*13);
 					first =1;
 				}
-				if(contained_in_array(pkt_id, missing_pkts, missing_pkts_loc) == true)
+				else if(contained_in_array(pkt_id, missing_pkts, missing_pkts_loc) == true)
 				{
 					if(hide!=1) cout << "We've already seen this packet\n";
 					continue;
 				}
-				if(hide!=1) cout << "Haven't seen this packet before.\n";
+				else if(hide!=1) cout << "Haven't seen this packet before.\n";
 				num_recvd++;
 
 				int num_entries = length_re_tx_packet(data);
@@ -174,14 +190,23 @@ void send_missing_pkts(uint8_t *pkt_buf)
 				{
 					memcpy(&val, data+num_re_tx_header_bytes + i * sizeof(uint16_t), sizeof(uint16_t));
 					if(hide!=1) printf("i: %d, val: %d\n", i, val);
-					memcpy(missing_pkts+missing_pkts_loc*sizeof(uint16_t), data + num_re_tx_header_bytes + i * sizeof(uint16_t), sizeof(uint16_t));
+					// memcpy(missing_pkts+missing_pkts_loc*sizeof(uint16_t), data + num_re_tx_header_bytes + i * sizeof(uint16_t), sizeof(uint16_t));
+		memcpy(&missing_pkts[missing_pkts_loc], &data[num_re_tx_header_bytes + i * sizeof(uint16_t)], sizeof(uint16_t)); 
 					missing_pkts_loc++;
 				}
 
 				// if the RX'er doesn't need anything retransmitted num_recvd = 1 and num_expecting = 0
-				if(num_recvd >= num_expecting)
-					break;
+				if(num_recvd > num_expecting)
+				{
+					cout << "num_recvd >= num_expecting\n";
+					return 1;
+				}
 			}
+			else if(data[0] == '\0' && data[1] == '4')
+			{
+				cout << "Received the all clear signal\n";
+				return 1;
+			}	
 			else
 			{
 				if(hide!=1) cout << "Don't recognize this type of packet!\n";
@@ -195,12 +220,15 @@ void send_missing_pkts(uint8_t *pkt_buf)
 	for(int i = 0; i < missing_pkts_loc; i++)
 	{
 		uint8_t data[32];
-		memset(&data, 'a', 32);
-		data[31] = '\0';
-		uint16_t pkt_id = *(missing_pkts + (i * sizeof(uint16_t)));
+		memset(&data, '\0', 32);
+		// uint16_t pkt_id = *(missing_pkts + (i * sizeof(uint16_t)));
+		uint16_t pkt_id = missing_pkts[i];
 	
 		memcpy(&data, &pkt_id, sizeof(uint16_t));
 		memcpy(&data[num_header_bytes], pkt_buf+(num_payload_bytes*pkt_id), num_payload_bytes);	
+		
+		uint8_t chk_sum = fletcher_8((uint8_t*)&data[num_header_bytes], num_payload_bytes);
+		data[31] = chk_sum;
 
 		if(hide!=1)
 		{
@@ -211,15 +239,25 @@ void send_missing_pkts(uint8_t *pkt_buf)
 		while(true)
 		{
 			if(radio.write(&data, 32) == false)
-				if(hide!=1) cout << "Sending missing packet failed!\n";
+			{
+				if(hide!=1)
+				{
+					cout << "Sending missing packet failed!\n";
+				}
+				usleep(50);
+			}
 			else
 			{
-				if(hide!=1) cout << "Success! Missing packet sent!\n";
+				if(hide!=1)
+				{
+					cout << "Success! Missing packet sent!\n";
+				}
 				break;
 			}
 		}
 	}
 	free(missing_pkts);
+	return 0;
 }
 
 void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed, int num_missing)
@@ -264,11 +302,13 @@ void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed
                                 else if(hide!=1)
                                 {
                                         cout<<"Successfully sent all clear packet!\n";
+					free(missing);
                                         return;
                                 }
                         }
                 }
                 cout << "Sent all clear for one minute, no response. Presumabably the transmitter's ACKs are getting lost. Writing to file and exiting.\n";
+		free(missing);
                 return;
 	}
 
@@ -349,6 +389,21 @@ size_t getFilesize (const char* filename){
 	return st.st_size;
 }
 
+// blatently ripped off from mch's answer to https://stackoverflow.com/q/34147580
+/* uint8_t fletcher_8(uint8_t *data, size_t size)
+{
+	uint8_t sum1 = 0;
+	uint8_t sum2 = 0;
+	for(size_t i = 0; i< size; i++)
+	{
+		printf("i: %i, data[i]: %c", i, data[i]);
+		sum1 += data[i];
+		sum2 += sum1;
+	}
+	// sum1&0xF is equivalent to sum1%16. 
+	return(sum1 & 0xF) | (sum2<<4);
+} */
+
 int main(int argc, char** argv)
 {
 	signal(SIGINT, interrupt_handler);
@@ -381,7 +436,7 @@ int main(int argc, char** argv)
 	radio.begin();                           // Setup and configure rf radio
 	radio.flush_tx();
 	radio.flush_rx();
-	radio.setChannel(125); 			// Channel choice can have a big effect on packet corruption. 
+	radio.setChannel(110); 			// Channel choice can have a big effect on packet corruption. 
 	radio.setPALevel(RF24_PA_MAX);
 	radio.setDataRate(RF24_2MBPS);
 	radio.setAutoAck(1);                     // Ensure autoACK is enabled
@@ -637,13 +692,16 @@ int main(int argc, char** argv)
 
 		// Store all the packets in a buffer addressed by special_ctr
 		// TODO: don't store entire file in memory, instead use fseek
-		packets = (uint8_t*)malloc(num_payload_bytes * total_num_pkts);
+		packets = (uint8_t*)malloc(num_payload_bytes * (total_num_pkts+1));
 
 		cout << "Beginning Transmission.\n";
 		// Read the entire file and store it into the packets array
+		uint8_t chk_sum = 0;
 		while(eof==0 && interrupt_flag == 0)
 		{
 			// Transmit normal data packets
+			int checksum_loc = 0;
+			memset(code, '\0', 32);
 			memcpy(code, &special_ctr, 2);
 			for(int i = 0 + num_header_bytes; i < 31; i++)
 			{
@@ -653,21 +711,23 @@ int main(int argc, char** argv)
 					if(hide!=1)
 						cout << "Hit EOF!\n";
 					eof = 1;
-					code[i] = '\0';
 					break;
 				}
 			}
 			memcpy(packets + (num_payload_bytes * special_ctr), &code[num_header_bytes], num_payload_bytes);
 
-			code[31] = '\0';
+			chk_sum = fletcher_8((uint8_t*)&code[num_header_bytes], num_payload_bytes);
+			code[31] = chk_sum;
+			checksum_loc = 31;
 
 			// Confirm the contents of the packet:
-			if(hide != 1)
+			/*if(hide != 1)
 			{
 				uint16_t pkt_num;
 				memcpy(&pkt_num, code, 2);
-				printf("pkt: %d \"%s\"\n", pkt_num, code+num_header_bytes);
-			}
+				printf("pkt: %d \"%*.*s\" chk_sum: %d\n", pkt_num, 1, checksum_loc, code+num_header_bytes, code[checksum_loc]);
+				// printf("pkt: %d \"%s\"\n", pkt_num, code+num_header_bytes);
+			}*/
 
 			#ifdef pkt_loss
 			/* Simulate some packet loss for testing purposes */
@@ -677,12 +737,12 @@ int main(int argc, char** argv)
 			if(radio.write(&code, 32))
 			{
 				if(hide != 1)
-					{
+				{
 					cout << "  Sent!\n";
-						// usleep(50);
-					}
-					else if(hide!=1)
-						cout << "  Failed.\n";
+					usleep(50);
+				}
+				else if(hide!=1)
+					cout << "  Failed.\n";
 			}
 			#ifdef pkt_loss
 			}
@@ -697,11 +757,7 @@ int main(int argc, char** argv)
 		memset(&last, '\0', sizeof(last));
 		if(interrupt_flag ==1)
 		{
-			last[1] = '8';
-			last[1] = 'P'; // Premature
-			last[1] = 'E'; // End
-			last[1] = 'o'; // of
-			last[1] = 'T'; // Transmission
+			last[2] = '8';
 
 			radio.write(&last, sizeof(last));
 
@@ -710,6 +766,10 @@ int main(int argc, char** argv)
 		{
 			if(hide!=1) printf("special_ctr: %d\n", special_ctr);
 			last[2] = '9';
+			int receiver_status = 0; 
+			while(receiver_status == 0)
+			{
+			printf("Receiver status is: %d\n", receiver_status);
 			while(true)
 			{
 				if(radio.write(&last, sizeof(last)) ==  false)
@@ -723,7 +783,8 @@ int main(int argc, char** argv)
 				}
 			}
 			cout << "Getting list of dropped packets\n";
-			send_missing_pkts(packets);
+			receiver_status = send_missing_pkts(packets);
+			}
 			cout << "File transfer looks successful!\n";
 			sleep(1);
 		}
