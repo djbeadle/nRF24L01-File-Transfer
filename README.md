@@ -104,21 +104,24 @@ If the receiver has everything, it responds with an "all clear" packet and we're
 
 If the receiver is missing something, it sends back some more retransmit requests, and the process repeats until the receiver has everything.
 
+### Misc:
+
 Compile command for wiringPi c code:
-g++ -Wall -o read_ads read_ads.cpp -lwiringPi -std=c++11
+
+`g++ -Wall -o read_ads read_ads.cpp -lwiringPi -std=c++11`
 
 Read ADS:
-./read_ads
+`./read_ads`
 
 Transmit:
-sudo ./combined [filename]
+`sudo ./combined [filename]`
 or: 
-sudo ./combined [filename] -h
+`sudo ./combined [filename] -h`
 
 Receive:
-sudo ./combined
+`sudo ./combined`
 or: 
-sudo ./combined -h
+`sudo ./combined -h`
 
 Plot data in terminal (Using a package called 'feedgnuplot' to send data to gnuplot):
-cat out.t | feedgnuplot --terminal 'dumb 80, 24' --exit
+`cat out.t | feedgnuplot --terminal 'dumb 80, 24' --exit`
