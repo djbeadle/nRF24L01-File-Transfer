@@ -4,7 +4,7 @@ This is a file transfer utility optimized for the small (32 byte!) packet size s
 
 There are a couple different types of packets, but a typical data packet looks like this:
 
-0                    2             31                 
+0                    2             31                 32
 *--------------------*-------------*------------------*
 | uint16_t Packet ID | Packet Data | uint8_t checksum |
 *--------------------*-------------*------------------*
@@ -33,12 +33,12 @@ Transmitter             Receiver
 |         Dropped! <--Ack---|
 
 At this point transmitting packet #2 has failed, so the transmitter moves on and tries to transmit the rest of the file.
-When the transmitter has sent every packet at least once, it sends a special packet
+When the transmitter has sent every packet at least once, it sends a "special packet"
 
 |---------Special Pkt---->  |
-| <----Auto Ack #1----------|
+| <----Auto Ack ------------|
 
-The receiver responds with a "ReTransmit Request" packet. These packets list all of the packets it is missing, or had bad checksums. 
+The receiver responds with a "ReTransmit Request" packet. These packets list all of the packets it is missing, or had bad software calculated checksums. 
 
 | <--ReTransmit Request #1--|
 |---------Ack-------------> |
@@ -52,8 +52,17 @@ Once the receiver has everything, it retransmits all the missing packets!
 |---------Data Pkt #2---->  |
 | <----Auto Ack #2----------|
 
-And finally you're done!
+And then another "special packet".
 
+|---------Special Pkt---->  |
+| <----Auto Ack ------------|
+
+If the receiver has everything, it responds with an "all clear" packet and we're done!
+
+| <---------All Clear!------|
+|-----------Auto Ack------> |
+
+If the receiver is missing something, it sends back some more retransmit requests, and the process repeats until the receiver has everything.
 
 Compile command for wiringPi c code:
 g++ -Wall -o read_ads read_ads.cpp -lwiringPi -std=c++11
