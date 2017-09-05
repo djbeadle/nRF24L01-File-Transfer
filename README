@@ -1,3 +1,60 @@
+
+The nRF24L01+ is a low power 2.4GHz transciever made by Nordic Semiconductor.
+This is a file transfer utility optimized for the small (32 byte!) packet size supported by these radios.
+
+There are a couple different types of packets, but a typical data packet looks like this:
+
+0                    2             31                 
+*--------------------*-------------*------------------*
+| uint16_t Packet ID | Packet Data | uint8_t checksum |
+*--------------------*-------------*------------------*
+        2 bytes         29 bytes          1 byte
+        
+The nRF24L01+ supports hardware checksums and auto re-transmit, but in practice I haven't found them to be reliable enough for file transfer.
+
+A typical file transfer looks like this:
+
+Transmitter             Receiver
+|                           |
+|-------------Ready?----->  |
+| <-----------Yep!----------|
+|                           |
+|---------Data Pkt #1---->  |
+| <----Auto Ack #1----------|
+|                           |
+|---------Data Pkt #2---->  |
+|        Dropped! <---Ack---|
+| Dropped! <----------Ack---|
+|    Dropped! <-------Ack---|
+|                           |
+|---------Data Pkt #2---->  |
+|         Dropped! <--Ack---|
+|        Dropped! <---Ack---|
+|         Dropped! <--Ack---|
+
+At this point transmitting packet #2 has failed, so the transmitter moves on and tries to transmit the rest of the file.
+When the transmitter has sent every packet at least once, it sends a special packet
+
+|---------Special Pkt---->  |
+| <----Auto Ack #1----------|
+
+The receiver responds with a "ReTransmit Request" packet. These packets list all of the packets it is missing, or had bad checksums. 
+
+| <--ReTransmit Request #1--|
+|---------Ack-------------> |
+| <--ReTransmit Request #2--|
+|---------Ack-------------> |
+| <--ReTransmit Request #3--|
+|---------Ack-------------> |
+
+Once the receiver has everything, it retransmits all the missing packets!
+
+|---------Data Pkt #2---->  |
+| <----Auto Ack #2----------|
+
+And finally you're done!
+
+
 Compile command for wiringPi c code:
 g++ -Wall -o read_ads read_ads.cpp -lwiringPi -std=c++11
 
