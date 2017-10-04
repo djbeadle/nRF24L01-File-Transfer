@@ -50,6 +50,7 @@ int hide = 0;
 
 void interrupt_handler(int nothing)
 {
+	cin.clear();
 	cout << "Ctrl-c pressed! Ending transmission and truncuating file.\n";
 	interrupt_flag = 1;
 }
@@ -149,7 +150,7 @@ int send_missing_pkts(uint8_t *pkt_buf)
 	uint32_t start = millis();
 	// Wait 20 seconds for a response. If nothing comes in, presumably 
 	// the receiver didn't need any packets re tx'ed and just quit. 
-	while(anything_recvd == 0 || (num_recvd < num_expecting && millis() - start < 60000))
+	while(interrupt_flag == 0 && anything_recvd == 0 || (num_recvd < num_expecting && millis() - start < 60000))
 	{
 		if(radio.available()){
 			radio.read(&data, 32);
@@ -236,7 +237,7 @@ int send_missing_pkts(uint8_t *pkt_buf)
 			printf("!:\" %s\"\n", data+num_header_bytes);
 		}
 	
-		while(true)
+		while(interrupt_flag == 0 && true)
 		{
 			if(radio.write(&data, 32) == false)
 			{
@@ -294,7 +295,7 @@ void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed
                 // blast the packet for a max time of one minute
                 cout << "Don't need any packets resent, attempting to send all clear to transmitter.\n";
                 uint32_t time = millis();
-                while(time - millis() <= 60000)
+                while(interrupt_flag == 0 && time - millis() <= 60000)
                 {
                         if(radio.write(&re_tx_pkt, 32) == false)
                         {
@@ -354,7 +355,7 @@ void request_missing_pkts(uint8_t *pkt_buf, bool *recvd_array, uint16_t num_txed
 		if(hide != 1) cout << "Sending re_tx_pkt\n";
 
 		radio.stopListening();
-		while(true)
+		while(interrupt_flag == 0)
 		{
 			if(radio.write(&re_tx_pkt, sizeof(re_tx_pkt)))
 				break;
@@ -514,6 +515,11 @@ int main(int argc, char** argv)
 		 * 1 - starting packet received, ready for data pkts
 		 */
 		int control = 0; 
+		if(interrupt_flag != 0)
+		{
+			cout << "File transmission canceled by user.\n";
+			return 6;
+		}
 		while(interrupt_flag == 0)
 		{
 			// Update our progress bar every 100 pkts
@@ -637,6 +643,7 @@ int main(int argc, char** argv)
 				fwrite(pkt_buf+num_payload_bytes, sizeof(uint8_t), size, output_file);
 				fclose(output_file);
 				puts("Wrote to file!\n");
+				send_all_clear();
 				break;
 			}
 		}
@@ -664,7 +671,7 @@ int main(int argc, char** argv)
 		memcpy(first+2, &filesize, 4);
 		cout << "Attempting to establish connection...";
 		cout.flush();
-		while(true)
+		while(interrupt_flag == 0)
 		{
 			if(radio.write(first, sizeof(first)) == false)
 			{
@@ -672,7 +679,15 @@ int main(int argc, char** argv)
 			}
 			else break;
 		}
-		cout << "Success!\n";
+		if(interrupt_flag == 0)
+		{
+			cout << "Success!\n";
+		}
+		else
+		{
+			cout << "Attempt to establish a connection was canceled by the user.";
+			return 6;
+		}
 
 		// Calculate the number of pkts we're TX'ing
 		uint16_t total_num_pkts = filesize / num_payload_bytes; 
@@ -767,7 +782,7 @@ int main(int argc, char** argv)
 			if(hide!=1) printf("special_ctr: %d\n", special_ctr);
 			last[2] = '9';
 			int receiver_status = 0; 
-			while(receiver_status == 0)
+			while(receiver_status == 0&& interrupt_flag == 0)
 			{
 			printf("Receiver status is: %d\n", receiver_status);
 			while(true)
@@ -782,10 +797,20 @@ int main(int argc, char** argv)
 					break;
 				}
 			}
-			cout << "Getting list of dropped packets\n";
-			receiver_status = send_missing_pkts(packets);
+			if(interrupt_flag == 0)
+			{
+				cout << "Getting list of dropped packets\n";
+				receiver_status = send_missing_pkts(packets);
 			}
-			cout << "File transfer looks successful!\n";
+			}
+			if(interrupt_flag == 0)
+			{
+				cout << "File transfer looks successful!\n";
+			}
+			else
+			{
+				cout << "File transfer was canceled by user.\n";
+			}
 			sleep(1);
 		}
 		free(packets);
