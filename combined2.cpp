@@ -46,7 +46,7 @@ const int num_special_header_bytes = 2; // '\0' + some char
 const int num_header_bytes = 2; // sizeof(uint16_t) = 2
 const int num_re_tx_header_bytes = 4; 
 
-int hide = 0;
+int hide = 1;
 
 void interrupt_handler(int nothing)
 {
@@ -409,17 +409,61 @@ int main(int argc, char** argv)
 {
 	signal(SIGINT, interrupt_handler);
 	fstream *file;
-	char *filename = argv[1];
-
 	uint8_t *packets; // buffer to store all of the packets
-	if(argc == 3)
-	{
-		if (strcmp("-h", argv[2]) == 0)
-			hide = 1;
-		file = new fstream(filename, fstream::in);
-	}
-	else if(argc == 2)
-		file = new fstream(filename, fstream::in);
+	char *filename = NULL;
+
+	bool rx = false;
+	bool tx = false;
+
+	int c;
+	while ((c = getopt (argc, argv, "hDs:d:")) != -1)
+		switch (c)
+		{
+			case 'D':
+				hide = 0;
+				break;
+			case 'h':
+				cout << "This is a simple wireless file transfer utility built for the nRF24 radio family!\n";
+				cout << "It's built using TMRh20's C++ RF24 library, which can be found on Github:\n"
+				cout << "https://github.com/nRF24/RF24"
+				cout << "\n";
+				cout << "Usage:\n";
+				cout << "-h: Show this help text.\n";
+				cout << "-s: The source file. Use this on the transmitter.\n";
+				cout << "-d: The destination file. Use this on the receiver. It will overwrite any existing files.\n";
+				cout << "-p: Show a bunch of debug messages. \n";
+				cout << "\n";
+				cout << "Examples:\n";
+				cout << "sudo ./combined2 -s ModernMajorGeneral.txt\n";
+				cout << "sudo ./combined2 -d ModernMajorGeneral-recv.txt\n";
+				break;
+			case 's':
+				if(rx == true)
+				{
+					cout << "Cannot be both transmitter and receiver!\n";
+					return 25;
+				}
+				tx = true;
+				filename = optarg;
+				break;
+			case 'd':
+				if(tx == true)
+				{
+					cout << "Cannot be both transmitter and receiver!\n"
+					return 25;
+				}
+				rx = true;
+				filename = optarg;
+				break;
+			case '?':
+				fprintf (stderr, "Unknown option `-%c'.\n", optopt);
+				break;
+		}
+
+		for (index = optind; index < argc; index++)
+		{
+			printf ("Non-option argument %s\n", argv[index]);
+		}
 
 	if(file == NULL)
 	{
