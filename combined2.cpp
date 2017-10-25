@@ -412,9 +412,10 @@ int main(int argc, char** argv)
 	uint8_t *packets; // buffer to store all of the packets
 	char *filename = NULL;
 
-	bool rx = false;
-	bool tx = false;
+	bool role_tx = 1, role_rx = 0;
+	bool role = 0;
 
+	bool z = true; // Flag to make sure we don't set both the -s and -d flags
 	int c;
 	while ((c = getopt (argc, argv, "hDs:d:")) != -1)
 		switch (c)
@@ -431,29 +432,31 @@ int main(int argc, char** argv)
 				cout << "-h: Show this help text.\n";
 				cout << "-s: The source file. Use this on the transmitter.\n";
 				cout << "-d: The destination file. Use this on the receiver. It will overwrite any existing files.\n";
-				cout << "-p: Show a bunch of debug messages. \n";
+				cout << "-D: Show a bunch of debug messages. \n";
 				cout << "\n";
 				cout << "Examples:\n";
 				cout << "sudo ./combined2 -s ModernMajorGeneral.txt\n";
 				cout << "sudo ./combined2 -d ModernMajorGeneral-recv.txt\n";
 				break;
 			case 's':
-				if(rx == true)
+				if(z == true)
 				{
 					cout << "Cannot be both transmitter and receiver!\n";
 					return 25;
 				}
-				tx = true;
 				filename = optarg;
+				z = false;
+				role = role_tx;
 				break;
 			case 'd':
-				if(tx == true)
+				if(z == true)
 				{
 					cout << "Cannot be both transmitter and receiver!\n"
 					return 25;
 				}
-				rx = true;
 				filename = optarg;
+				z = false;
+				role = role_rx;
 				break;
 			case '?':
 				fprintf (stderr, "Unknown option `-%c'.\n", optopt);
@@ -487,12 +490,16 @@ int main(int argc, char** argv)
 	radio.setAutoAck(1);                     // Ensure autoACK is enabled
 	radio.setRetries(4,15);                  // Optionally, increase the delay between retries & # of retries
 	radio.setCRCLength(RF24_CRC_16);          // Use 8-bit CRC for performance
+
 	if(hide == 0){
 		radio.printDetails();
-		printf("\n ************ Role Setup ***********\n");
 	}
 
 	/* ROLE CHOOSER */
+	/* No longer needed, now doing everything through command line arguments */
+	/* 
+	printf("\n ************ Role Setup ***********\n");
+
 	bool role_tx = 1, role_rx = 0;
 	bool role = 0;
 
@@ -511,6 +518,7 @@ int main(int argc, char** argv)
 			role = role_tx;
 		}
 	}
+	*/ 
 
 	/************/
 	/* RECEIVER */
@@ -532,14 +540,19 @@ int main(int argc, char** argv)
 
 		/* Open a file for writing to */
 		int filename_length = 32;
-		char *save_name = (char*) malloc(filename_length);
 		FILE *output_file;
+
+		/* Replacing the interactive portion with command line arguments. Should be removed once tested. 
+		char *save_name = (char*) malloc(filename_length);
 
 		cout << "Please enter a file name up to " << filename_length << " characters in length\n";
 		cout << "(This will overwrite any file with the same name)\n";
 		cout << "> ";
 		cin.getline(save_name, filename_length);
 		output_file = fopen(save_name, "w");
+		*/
+
+		output_file = fopen(filename, "w");
 
 		if(output_file == NULL)
 		{
