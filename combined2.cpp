@@ -415,7 +415,7 @@ int main(int argc, char** argv)
 	bool role_tx = 1, role_rx = 0;
 	bool role = 0;
 
-	bool z = true; // Flag to make sure we don't set both the -s and -d flags
+	bool z = false; // Flag to make sure we don't set both the -s and -d flags
 	int c;
 	while ((c = getopt (argc, argv, "hDs:d:")) != -1)
 		switch (c)
@@ -425,8 +425,8 @@ int main(int argc, char** argv)
 				break;
 			case 'h':
 				cout << "This is a simple wireless file transfer utility built for the nRF24 radio family!\n";
-				cout << "It's built using TMRh20's C++ RF24 library, which can be found on Github:\n"
-				cout << "https://github.com/nRF24/RF24"
+				cout << "It's built using TMRh20's C++ RF24 library, which can be found on Github:\n";
+				cout << "https://github.com/nRF24/RF24";
 				cout << "\n";
 				cout << "Usage:\n";
 				cout << "-h: Show this help text.\n";
@@ -437,37 +437,46 @@ int main(int argc, char** argv)
 				cout << "Examples:\n";
 				cout << "sudo ./combined2 -s ModernMajorGeneral.txt\n";
 				cout << "sudo ./combined2 -d ModernMajorGeneral-recv.txt\n";
-				break;
-			case 's':
+				break;	
+			case 's': // Specify source file
 				if(z == true)
 				{
 					cout << "Cannot be both transmitter and receiver!\n";
 					return 25;
 				}
 				filename = optarg;
-				z = false;
+				z = true;
 				role = role_tx;
 				break;
-			case 'd':
+			case 'd': // Specify destination file
 				if(z == true)
 				{
-					cout << "Cannot be both transmitter and receiver!\n"
+					cout << "Cannot be both transmitter and receiver!\n";
 					return 25;
 				}
 				filename = optarg;
-				z = false;
+				z = true;
 				role = role_rx;
 				break;
-			case '?':
+			/* case '?':
 				fprintf (stderr, "Unknown option `-%c'.\n", optopt);
-				break;
+				break; */
 		}
 
-		for (index = optind; index < argc; index++)
+		for (int index = optind; index < argc; index++)
 		{
 			printf ("Non-option argument %s\n", argv[index]);
 		}
 
+	// Make sure the user specified a file. 
+	if(z != true)
+	{
+		cout << "Unable to run, at least one filename is required as an agrument. Use -s [source file] or -d [dest file]\n";
+		return 6;
+	}
+
+	// Open the file
+	file = new fstream(filename, fstream::in);
 	if(file == NULL)
 	{
 		cout << "Could not open the file.\n";
@@ -574,9 +583,10 @@ int main(int argc, char** argv)
 		int control = 0; 
 		if(interrupt_flag != 0)
 		{
-			cout << "File transmission canceled by user.\n";
+			cout << "File transfer canceled by user.\n";
 			return 6;
 		}
+		cout << "Waiting for transmission...\n";
 		while(interrupt_flag == 0)
 		{
 			// Update our progress bar every 100 pkts
@@ -704,9 +714,17 @@ int main(int argc, char** argv)
 				break;
 			}
 		}
-		free(recvd_array);
-		free(save_name);
-		free(pkt_buf);
+		cout << "here?\n";
+		if(recvd_array != NULL)
+		{
+			free(recvd_array);
+		}
+		cout << "here2?\n";
+		if(pkt_buf != NULL)
+		{
+			free(pkt_buf);
+		}
+		cout << "here3?\n";
 	}
 	/***************/
 	/* TRANSMITTER */
@@ -742,7 +760,7 @@ int main(int argc, char** argv)
 		}
 		else
 		{
-			cout << "Attempt to establish a connection was canceled by the user.";
+			cout << "Attempt to establish a connection was canceled by the user.\n";
 			return 6;
 		}
 
