@@ -18,14 +18,20 @@
 
 using namespace std;
 
-// Uncomment this to drop every packet where pkt_num % 25 == 0
+/********************************
+ * User Configurable Variables: *
+********************************/
+
+// Need to simulate some packet loss?
+// Uncomment this to drop every packet where pkt_num % 25 == 0.
 #define pkt_loss 25
 
-//
-// Hardware configuration
-//
+// Sampling rate
+const uint8_t measure_seconds = 4;
 
-/****************** Raspberry Pi ***********************/
+/***********************
+ * Raspberry Pi Config *
+************************/
 
 // Radio CE Pin, CSN Pin, SPI Speed
 // See http://www.airspayce.com/mikem/bcm2835/group__constants.html#ga63c029bd6500167152db4e57736d0939 and the related enumerations for pin information.
@@ -33,20 +39,29 @@ using namespace std;
 // Setup for GPIO 22 CE and CE0 CSN with SPI Speed @ 4Mhz
 RF24 radio(RPI_V2_GPIO_P1_22, BCM2835_SPI_CS0, BCM2835_SPI_SPEED_4MHZ);
 
-/**************************************************************/
+/*********************
+ * System Variables: *
+**********************/
 
 // Radio pipe addresses for the 2 nodes to communicate.
 const uint64_t addresses[2] = { 0xABCDABCD71LL, 0x544d52687CLL };
 
-static volatile int interrupt_flag = 0;
+static volatile int interrupt_flag = 0;	// Catches Ctrl-c, for canceling transmisison
+static volatile int timer_flag = 0; // For measuring transmission rate
 
+// For determining how many packets we've received in this time interval when measuring reception rate
+volatile uint16_t num_recvd_last = 0;
+
+// These are details about how the packets are built.
+// I guess if the radio's packet size changes you could change them, or if you wanted to increase the pkt_id from
+// uint16_t to uint32_t at the expense of 2 data bytes you could do that oo. 
 const int num_payload_bytes = 29; // 32 - 2 (header) - 1 (\0 at end) = 29
 const int num_re_tx_payload_bytes = 26; // Round down to the nearest even number to keep math simple when dealing with 2 byte pkt ids. 
 const int num_special_header_bytes = 2; // '\0' + some char 
 const int num_header_bytes = 2; // sizeof(uint16_t) = 2
 const int num_re_tx_header_bytes = 4; 
 
-int hide = 0;
+int hide = 1;
 
 void interrupt_handler(int nothing)
 {
@@ -199,7 +214,7 @@ int send_missing_pkts(uint8_t *pkt_buf)
 				// if the RX'er doesn't need anything retransmitted num_recvd = 1 and num_expecting = 0
 				if(num_recvd > num_expecting)
 				{
-					cout << "num_recvd >= num_expecting\n";
+					if(hide!=1) cout << "num_recvd >= num_expecting\n";
 					return 1;
 				}
 			}
@@ -405,22 +420,103 @@ size_t getFilesize (const char* filename){
 	return(sum1 & 0xF) | (sum2<<4);
 } */
 
+void sigalrm_handler(int sig)
+{
+	timer_flag = true;
+}
+
 int main(int argc, char** argv)
 {
-	signal(SIGINT, interrupt_handler);
+	signal(SIGINT, interrupt_handler); // Ctrl-c interrupt handler
 	fstream *file;
-	char *filename = argv[1];
-
 	uint8_t *packets; // buffer to store all of the packets
-	if(argc == 3)
-	{
-		if (strcmp("-h", argv[2]) == 0)
-			hide = 1;
-		file = new fstream(filename, fstream::in);
-	}
-	else if(argc == 2)
-		file = new fstream(filename, fstream::in);
+	char *filename = NULL;
 
+	bool role_tx = 1, role_rx = 0;
+	bool role = 0;
+
+	bool measure = false;
+	bool hide_progress_bar = false;
+
+	bool z = false; // Flag to make sure we don't set both the -s and -d flags
+	int c;
+	while ((c = getopt (argc, argv, "s:d:nmhD")) != -1)
+	{
+		switch (c)
+		{
+			case 'D':
+				hide = 0;
+				break;
+			case 'h':
+				cout << "This is a simple wireless file transfer utility built for the nRF24 radio family!\n";
+				cout << "It's built using TMRh20's C++ RF24 library, which can be found on Github:\n";
+				cout << "https://github.com/nRF24/RF24";
+				cout << "\n";
+				cout << "Usage:\n";
+				cout << "-h: Show this help text.\n";
+				cout << "-s: The source file. Use this on the transmitter.\n";
+				cout << "-d: The destination file. Use this on the receiver. It will overwrite any existing files.\n";
+				cout << "-D: Show a bunch of debug messages. \n";
+				cout << "-n: Hide the progress bar on the receiver. Use when measuring, if you like.\n";
+				cout << "-m: Measure the successfull data reception rate. Doesn't count packets where checksums don't match\n";
+				cout << "\n";
+				cout << "Examples:\n";
+				cout << "sudo ./combined2 -s ModernMajorGeneral.txt \n";
+				cout << "sudo ./combined2 -d ModernMajorGeneral-recv.txt \n";
+				break;	
+			case 's': // Specify source file
+				if(z == true)
+				{
+					cout << "Cannot be both transmitter and receiver!\n";
+					return 25; 
+				}
+				filename = optarg;
+				z = true;
+				role = role_tx;
+				break;
+			case 'd': // Specify destination file
+				if(z == true)
+				{
+					cout << "Cannot be both transmitter and receiver!\n";
+					return 25;
+				}
+				filename = optarg;
+				z = true;
+				role = role_rx;
+				break;
+			case 'm': // Measure data reception rate
+				measure = true;
+				cout << "Measuring!\n";
+				break;
+			case 'n': // Hide the progress bar
+				hide_progress_bar = true;
+				cout << "Hiding progress bar!\n";
+				break;
+			case '?':
+				fprintf (stderr, "Unknown option `-%c'.\n", optopt);
+				return 6;
+		}
+
+		/* for (int index = optind; index < argc; index++)
+		{
+			printf ("Non-option argument %s\n", argv[index]);
+		} */
+	}
+	if (measure == true && role == role_tx)
+	{
+		cout << "ERROR: Cannot measure data reception rate from the transmitter.\n";
+		return 6;
+	}
+	
+	// Make sure the user specified a file. 
+	if(z != true)
+	{
+		cout << "ERROR: At least one filename is required as an agrument. Use -s [source file] or -d [dest file]\n";
+		return 6;
+	}
+
+	// Open the file
+	file = new fstream(filename, fstream::in);
 	if(file == NULL)
 	{
 		cout << "Could not open the file.\n";
@@ -443,12 +539,16 @@ int main(int argc, char** argv)
 	radio.setAutoAck(1);                     // Ensure autoACK is enabled
 	radio.setRetries(4,15);                  // Optionally, increase the delay between retries & # of retries
 	radio.setCRCLength(RF24_CRC_16);          // Use 8-bit CRC for performance
+
 	if(hide == 0){
 		radio.printDetails();
-		printf("\n ************ Role Setup ***********\n");
 	}
 
 	/* ROLE CHOOSER */
+	/* No longer needed, now doing everything through command line arguments */
+	/* 
+	printf("\n ************ Role Setup ***********\n");
+
 	bool role_tx = 1, role_rx = 0;
 	bool role = 0;
 
@@ -467,12 +567,18 @@ int main(int argc, char** argv)
 			role = role_tx;
 		}
 	}
+	*/ 
 
 	/************/
 	/* RECEIVER */
 	/************/
 	if(role == role_rx)
 	{
+		if(measure == true)
+		{
+			signal(SIGALRM, &sigalrm_handler);
+		}
+		
 		/* Things we will need later: */
 		uint32_t filesize = 0;
 		uint32_t num_expected = 0; // # of pkts we're expecting
@@ -488,14 +594,19 @@ int main(int argc, char** argv)
 
 		/* Open a file for writing to */
 		int filename_length = 32;
-		char *save_name = (char*) malloc(filename_length);
 		FILE *output_file;
+
+		/* Replacing the interactive portion with command line arguments. Should be removed once tested. 
+		char *save_name = (char*) malloc(filename_length);
 
 		cout << "Please enter a file name up to " << filename_length << " characters in length\n";
 		cout << "(This will overwrite any file with the same name)\n";
 		cout << "> ";
 		cin.getline(save_name, filename_length);
 		output_file = fopen(save_name, "w");
+		*/
+
+		output_file = fopen(filename, "w");
 
 		if(output_file == NULL)
 		{
@@ -517,13 +628,25 @@ int main(int argc, char** argv)
 		int control = 0; 
 		if(interrupt_flag != 0)
 		{
-			cout << "File transmission canceled by user.\n";
+			cout << "File transfer canceled by user.\n";
 			return 6;
 		}
+		cout << "Waiting for transmission...\n";
 		while(interrupt_flag == 0)
 		{
+			if(measure == true && timer_flag == true)
+			{
+				unsigned long recvd_this_interval = num_recvd - num_recvd_last;
+				unsigned long rate_this_interval = recvd_this_interval / measure_seconds;
+				int data_rate = rate_this_interval * num_payload_bytes;
+				printf("Received %u pkts in %u seconds - %u pkts/sec	- %d bytes/sec \n", recvd_this_interval, measure_seconds, recvd_this_interval / measure_seconds, data_rate);
+
+				num_recvd_last = num_recvd;
+				timer_flag = false;
+				alarm(measure_seconds);
+			}
 			// Update our progress bar every 100 pkts
-			if(progress_ctr <= 0)
+			if(hide_progress_bar == false && progress_ctr <= 0)
 			{
 				float normalized_progress = (float)(num_recvd - 1)/(float)(num_expected - 1);
 				cout << "[";
@@ -561,7 +684,8 @@ int main(int argc, char** argv)
 					memset(pkt_buf, '\0', (num_expected+1)*num_payload_bytes);
 					// recvd_array = (bool*)calloc(num_expected, sizeof(bool));
 					recvd_array = (bool*)malloc((num_expected+1)*sizeof(bool));
-					control = 1; 
+					control = 1;
+					alarm(measure_seconds);
 					continue;
 				}
 				/* Ending Packet */
@@ -647,9 +771,14 @@ int main(int argc, char** argv)
 				break;
 			}
 		}
-		free(recvd_array);
-		free(save_name);
-		free(pkt_buf);
+		if(recvd_array != NULL)
+		{
+			free(recvd_array);
+		}
+		if(pkt_buf != NULL)
+		{
+			free(pkt_buf);
+		}
 	}
 	/***************/
 	/* TRANSMITTER */
@@ -668,6 +797,11 @@ int main(int argc, char** argv)
 		memset(&first, '\0', sizeof(first));
 		first[1] = '1';
 		uint32_t filesize = getFilesize(filename);
+		if(filesize == 0)
+		{
+			cout << "Error: Will not transmit an empty file!\n";
+			return 6;
+		}
 		memcpy(first+2, &filesize, 4);
 		cout << "Attempting to establish connection...";
 		cout.flush();
@@ -685,7 +819,7 @@ int main(int argc, char** argv)
 		}
 		else
 		{
-			cout << "Attempt to establish a connection was canceled by the user.";
+			cout << "Attempt to establish a connection was canceled by the user.\n";
 			return 6;
 		}
 
@@ -784,7 +918,7 @@ int main(int argc, char** argv)
 			int receiver_status = 0; 
 			while(receiver_status == 0&& interrupt_flag == 0)
 			{
-			printf("Receiver status is: %d\n", receiver_status);
+			if(hide!=1) printf("Receiver status is: %d\n", receiver_status);
 			while(true)
 			{
 				if(radio.write(&last, sizeof(last)) ==  false)
