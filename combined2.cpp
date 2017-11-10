@@ -24,7 +24,7 @@ using namespace std;
 
 // Need to simulate some packet loss?
 // Uncomment this to drop every packet where pkt_num % 25 == 0.
-#define pkt_loss 25
+#define PKT_LOSS 25
 
 // Sampling rate
 const uint8_t measure_seconds = 4;
@@ -206,8 +206,7 @@ int send_missing_pkts(uint8_t *pkt_buf)
 				{
 					memcpy(&val, data+num_re_tx_header_bytes + i * sizeof(uint16_t), sizeof(uint16_t));
 					if(hide!=1) printf("i: %d, val: %d\n", i, val);
-					// memcpy(missing_pkts+missing_pkts_loc*sizeof(uint16_t), data + num_re_tx_header_bytes + i * sizeof(uint16_t), sizeof(uint16_t));
-		memcpy(&missing_pkts[missing_pkts_loc], &data[num_re_tx_header_bytes + i * sizeof(uint16_t)], sizeof(uint16_t)); 
+					memcpy(&missing_pkts[missing_pkts_loc], &data[num_re_tx_header_bytes + i * sizeof(uint16_t)], sizeof(uint16_t)); 
 					missing_pkts_loc++;
 				}
 
@@ -405,21 +404,6 @@ size_t getFilesize (const char* filename){
 	return st.st_size;
 }
 
-// blatently ripped off from mch's answer to https://stackoverflow.com/q/34147580
-/* uint8_t fletcher_8(uint8_t *data, size_t size)
-{
-	uint8_t sum1 = 0;
-	uint8_t sum2 = 0;
-	for(size_t i = 0; i< size; i++)
-	{
-		printf("i: %i, data[i]: %c", i, data[i]);
-		sum1 += data[i];
-		sum2 += sum1;
-	}
-	// sum1&0xF is equivalent to sum1%16. 
-	return(sum1 & 0xF) | (sum2<<4);
-} */
-
 void sigalrm_handler(int sig)
 {
 	timer_flag = true;
@@ -544,31 +528,6 @@ int main(int argc, char** argv)
 		radio.printDetails();
 	}
 
-	/* ROLE CHOOSER */
-	/* No longer needed, now doing everything through command line arguments */
-	/* 
-	printf("\n ************ Role Setup ***********\n");
-
-	bool role_tx = 1, role_rx = 0;
-	bool role = 0;
-
-	string input = "";
-	char myChar = {0};
-	cerr << "Choose a role: Enter 0 for receiver, 1 for transmitter (CTRL+C to exit)\n>";
-	getline(cin,input);
-
-	if(input.length() == 1) {
-		myChar = input[0];
-		if(myChar == '0') {
-			cout << "Role: Receiver." << endl;
-			role = role_rx;
-		} else {
-			cout << "Role: Transmitter." << endl;
-			role = role_tx;
-		}
-	}
-	*/ 
-
 	/************/
 	/* RECEIVER */
 	/************/
@@ -595,16 +554,6 @@ int main(int argc, char** argv)
 		/* Open a file for writing to */
 		int filename_length = 32;
 		FILE *output_file;
-
-		/* Replacing the interactive portion with command line arguments. Should be removed once tested. 
-		char *save_name = (char*) malloc(filename_length);
-
-		cout << "Please enter a file name up to " << filename_length << " characters in length\n";
-		cout << "(This will overwrite any file with the same name)\n";
-		cout << "> ";
-		cin.getline(save_name, filename_length);
-		output_file = fopen(save_name, "w");
-		*/
 
 		output_file = fopen(filename, "w");
 
@@ -735,7 +684,6 @@ int main(int argc, char** argv)
 					uint16_t pkt_num;
 					memcpy(&pkt_num, data, 2);
 					num_recvd++;
-					// printf("P: %d\n", pkt_num);
 
 					// Drop any packets we've already
 					// seen (The ACK we sent must not
@@ -869,17 +817,8 @@ int main(int argc, char** argv)
 			code[31] = chk_sum;
 			checksum_loc = 31;
 
-			// Confirm the contents of the packet:
-			/*if(hide != 1)
-			{
-				uint16_t pkt_num;
-				memcpy(&pkt_num, code, 2);
-				printf("pkt: %d \"%*.*s\" chk_sum: %d\n", pkt_num, 1, checksum_loc, code+num_header_bytes, code[checksum_loc]);
-				// printf("pkt: %d \"%s\"\n", pkt_num, code+num_header_bytes);
-			}*/
-
-			#ifdef pkt_loss
 			/* Simulate some packet loss for testing purposes */
+			#ifdef PKT_LOSS
 			if(special_ctr % 25 != 0)
 			{	
 			#endif
@@ -893,7 +832,8 @@ int main(int argc, char** argv)
 				else if(hide!=1)
 					cout << "  Failed.\n";
 			}
-			#ifdef pkt_loss
+			#ifdef PKT_LOSS
+		
 			}
 			#endif
 
@@ -901,7 +841,6 @@ int main(int argc, char** argv)
 		}
 
 		// Send the very last packet:
-
 		uint8_t last[32];
 		memset(&last, '\0', sizeof(last));
 		if(interrupt_flag ==1)
