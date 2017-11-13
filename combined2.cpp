@@ -552,9 +552,7 @@ int main(int argc, char** argv)
 		int bar_width = 70;
 
 		/* Open a file for writing to */
-		int filename_length = 32;
 		FILE *output_file;
-
 		output_file = fopen(filename, "w");
 
 		if(output_file == NULL)
@@ -733,10 +731,6 @@ int main(int argc, char** argv)
 	/***************/
 	else if(role == role_tx)
 	{
-		if(argc == 1){
-			cerr << "Transmit mode requires a filename as an argument!\n";
-			return 6;
-		}
 		radio.openWritingPipe(addresses[1]);
 		radio.openReadingPipe(1,addresses[0]);
 		radio.stopListening();
