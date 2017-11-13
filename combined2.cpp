@@ -521,8 +521,10 @@ int main(int argc, char** argv)
 	radio.setPALevel(RF24_PA_MAX);
 	radio.setDataRate(RF24_2MBPS);
 	radio.setAutoAck(1);                     // Ensure autoACK is enabled
-	radio.setRetries(4,15);                  // Optionally, increase the delay between retries & # of retries
-	radio.setCRCLength(RF24_CRC_16);          // Use 8-bit CRC for performance
+	radio.setRetries(1,1);                  // Optionally, increase the delay between retries & # of retries
+	// Use 8 bit CRC for a slight performance benefit. 
+	// If sender & receiver CRCs don't match, the sender & receiver won't be able to establish a connection. 
+	radio.setCRCLength(RF24_CRC_8);
 
 	if(hide == 0){
 		radio.printDetails();
@@ -588,7 +590,7 @@ int main(int argc, char** argv)
 				unsigned long recvd_this_interval = num_recvd - num_recvd_last;
 				unsigned long rate_this_interval = recvd_this_interval / measure_seconds;
 				int data_rate = rate_this_interval * num_payload_bytes;
-				printf("Received %u pkts in %u seconds - %u pkts/sec	- %d bytes/sec \n", recvd_this_interval, measure_seconds, recvd_this_interval / measure_seconds, data_rate);
+				printf("Received %u pkts in %u seconds - %u pkts/sec - %d bytes/sec \n", recvd_this_interval, measure_seconds, recvd_this_interval / measure_seconds, data_rate);
 
 				num_recvd_last = num_recvd;
 				timer_flag = false;
