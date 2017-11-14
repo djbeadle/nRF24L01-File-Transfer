@@ -634,7 +634,10 @@ int main(int argc, char** argv)
 					// recvd_array = (bool*)calloc(num_expected, sizeof(bool));
 					recvd_array = (bool*)malloc((num_expected+1)*sizeof(bool));
 					control = 1;
-					alarm(measure_seconds);
+					if(measure == true)
+					{
+						alarm(measure_seconds);
+					}
 					continue;
 				}
 				/* Ending Packet */
