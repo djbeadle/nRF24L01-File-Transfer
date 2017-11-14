@@ -445,8 +445,8 @@ int main(int argc, char** argv)
 				cout << "-m: Measure the successfull data reception rate. Doesn't count packets where checksums don't match\n";
 				cout << "\n";
 				cout << "Examples:\n";
-				cout << "sudo ./combined2 -s ModernMajorGeneral.txt \n";
-				cout << "sudo ./combined2 -d ModernMajorGeneral-recv.txt \n";
+				cout << "sudo ./rf24_transfer -s ModernMajorGeneral.txt \n";
+				cout << "sudo ./rf24_transfer -d ModernMajorGeneral-recv.txt \n";
 				break;	
 			case 's': // Specify source file
 				if(z == true)
@@ -511,8 +511,6 @@ int main(int argc, char** argv)
 	/*******************************/
 	/* PRINT PREAMBLE AND GET ROLE */
 	/*******************************/
-	if(hide == 0)
-		cout << "RF24/examples/combined2.cpp\n";
 
 	radio.begin();                           // Setup and configure rf radio
 	radio.flush_tx();
